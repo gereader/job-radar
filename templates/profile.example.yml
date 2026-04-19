@@ -12,8 +12,8 @@ identity:
 
 targets:
   titles:
-    - "Senior Software Engineer"
-    - "Staff Engineer"
+    - "Your Target Title 1"              # e.g. "Senior Software Engineer", "Engineering Manager"
+    - "Your Target Title 2"
   archetypes:
     - name: "primary-archetype"
       priority: 10
@@ -22,15 +22,16 @@ targets:
       priority: 5
       description: "Adjacent fit."
   comp:
-    min: 180000
-    target: 220000
-    max: 280000
-    currency: "USD"
-  location_policy: "remote"   # remote|hybrid|onsite|flexible
-  remote_regions: ["US"]
+    # Set to your local market. Numbers below are placeholders, not a target.
+    min: 100000
+    target: 150000
+    max: 200000
+    currency: "USD"                      # change for your market
+  location_policy: "remote"              # remote|hybrid|onsite|flexible
+  remote_regions: []                     # e.g. ["US"], ["EU"], ["UK", "EU"]
   dealbreakers:
-    - "on-site in SF Bay Area"
-    - "5+ days/week office"
+    - "REPLACE_WITH_YOUR_DEALBREAKER_1"  # e.g. "on-site in SF Bay Area"
+    - "REPLACE_WITH_YOUR_DEALBREAKER_2"  # e.g. "5+ days/week office"
   # Optional geo pre-filter for `jr triage` auto-skip. If both lists are
   # empty or missing, the filter is off — every role goes to the LLM.
   # Populate with location markers that should KEEP a role in the queue;
@@ -90,4 +91,6 @@ jd_lifecycle:
 # US salary-transparency states. JDs in these locations that omit any
 # numeric comp signal will get a `salary-hidden-in-transparency-state`
 # screen reason and lose the configured weight from keywords.yml.
-transparency_states: [WA, CA, CO, NY, IL, MD, RI, HI]
+# Remove or clear this list if you're not targeting US roles — the
+# feature is US-pay-transparency-law-specific.
+transparency_states: []  # e.g. [WA, CA, CO, NY, IL, MD, RI, HI]
