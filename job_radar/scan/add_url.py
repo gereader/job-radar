@@ -139,9 +139,11 @@ def add_url(url: str, *, force_review: bool = True) -> int | None:
     rules = Ruleset.from_yaml(cfg.keywords_path) if cfg.keywords_path.exists() else Ruleset()
     pass_at = (cfg.profile.get("scoring") or {}).get("pass_at", 70)
     review_at = (cfg.profile.get("scoring") or {}).get("review_at", 40)
+    transparency_states = list(cfg.profile.get("transparency_states") or [])
     result = screen(
         title, md, fields.location, rules,
         pass_at=pass_at, review_at=review_at,
+        transparency_states=transparency_states,
     )
     verdict = "review" if force_review else result.verdict
 

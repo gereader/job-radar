@@ -158,6 +158,7 @@ def run_scan(portal: str | None = None, limit: int = 0, dry_run: bool = False) -
     rules = Ruleset.from_yaml(cfg.keywords_path) if cfg.keywords_path.exists() else Ruleset()
     pass_at = (cfg.profile.get("scoring") or {}).get("pass_at", 70)
     review_at = (cfg.profile.get("scoring") or {}).get("review_at", 40)
+    transparency_states = list(cfg.profile.get("transparency_states") or [])
 
     scan_cfg = (cfg.profile.get("scan") or {})
     max_workers = int(scan_cfg.get("max_workers") or 8)
@@ -236,6 +237,7 @@ def run_scan(portal: str | None = None, limit: int = 0, dry_run: bool = False) -
                 rules,
                 pass_at=pass_at,
                 review_at=review_at,
+                transparency_states=transparency_states,
             )
 
             if result.verdict == "pass":

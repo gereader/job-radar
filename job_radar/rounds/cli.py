@@ -98,6 +98,77 @@ def list_rounds(app_id: int) -> None:
     console.print(t)
 
 
+def add_questions(round_id: int) -> None:
+    """Interactive capture of questions asked in a round. Zero LLM."""
+    cfg = Config.load()
+    conn = connect(cfg)
+    migrate(conn)
+
+    row = conn.execute(
+        "SELECT id, application_id, round_number, kind FROM interview_rounds WHERE id = ?",
+        (round_id,),
+    ).fetchone()
+    if not row:
+        console.print(f"[red]no round {round_id}[/red]")
+        return
+
+    console.print(
+        f"[bold]Capturing questions for round {round_id}[/bold] "
+        f"(round #{row['round_number']} {row['kind']}). Empty question to stop."
+    )
+    captured = 0
+    while True:
+        q = Prompt.ask("Question", default="")
+        if not q.strip():
+            break
+        asked_by = Prompt.ask("Asked by (interviewer)", default="")
+        tags = Prompt.ask("Topic tags (comma-separated)", default="")
+        difficulty_raw = Prompt.ask("Difficulty 1-5 (blank to skip)", default="")
+        difficulty = int(difficulty_raw) if difficulty_raw.strip().isdigit() else None
+        notes = Prompt.ask("Answer notes (what you said / what you wish you'd said)", default="")
+        with tx(conn):
+            conn.execute(
+                """
+                INSERT INTO round_questions(round_id, question, asked_by,
+                    topic_tags, difficulty, answer_notes)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (round_id, q.strip(), asked_by or None, tags or None,
+                 difficulty, notes or None),
+            )
+        captured += 1
+    console.print(f"[green]captured {captured} question(s)[/green] for round {round_id}")
+
+
+def list_questions(round_id: int) -> None:
+    cfg = Config.load()
+    conn = connect(cfg)
+    migrate(conn)
+    rows = conn.execute(
+        """
+        SELECT id, question, asked_by, topic_tags, difficulty, answer_notes,
+               captured_at
+        FROM round_questions
+        WHERE round_id = ?
+        ORDER BY id ASC
+        """,
+        (round_id,),
+    ).fetchall()
+    if not rows:
+        console.print(f"(no questions captured for round {round_id})")
+        return
+    t = Table(title=f"Round {round_id} — {len(rows)} question(s)")
+    for c in ("#", "Question", "Asked by", "Tags", "Diff"):
+        t.add_column(c)
+    for r in rows:
+        t.add_row(
+            str(r["id"]), (r["question"] or "")[:80],
+            r["asked_by"] or "-", r["topic_tags"] or "-",
+            str(r["difficulty"] or "-"),
+        )
+    console.print(t)
+
+
 def update_round(round_id: int) -> None:
     cfg = Config.load()
     conn = connect(cfg)

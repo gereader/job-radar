@@ -163,11 +163,14 @@ def eval_cmd(
 def apply(
     job_id: int,
     open_editor: bool = typer.Option(True, "--edit/--no-edit"),
+    referral: int | None = typer.Option(
+        None, "--referral", help="Contact id of the person who referred you.",
+    ),
 ):
     """Create application row, branch resume + cover from templates."""
     from .apply.flow import run_apply
 
-    run_apply(job_id, open_editor=open_editor)
+    run_apply(job_id, open_editor=open_editor, referral_contact_id=referral)
 
 
 @app.command()
@@ -283,6 +286,48 @@ def patterns():
     from .learn.patterns import run_patterns
 
     run_patterns()
+
+
+@app.command()
+def brief(
+    open_after: bool = typer.Option(False, "--open/--no-open", help="Open in browser."),
+):
+    """Morning report: due follow-ups, upcoming rounds, new passes, costs."""
+    from .views.brief import run_brief
+
+    run_brief(open_after=open_after)
+
+
+portals_app = typer.Typer(help="portals.yml admin: enable / disable / ghost-cooldown.")
+app.add_typer(portals_app, name="portals")
+
+
+@portals_app.command("ls")
+def portals_ls():
+    from .scan.portals_admin import list_status
+    list_status()
+
+
+@portals_app.command("ghost-cooldown")
+def portals_ghost_cooldown(
+    name_or_slug: str = typer.Argument(...),
+    days: int = typer.Option(180, "--days"),
+):
+    """Set `ghosted_until: <today+days>` on a portal entry. Re-enables on date."""
+    from .scan.portals_admin import ghost_cooldown
+    ghost_cooldown(name_or_slug, days=days)
+
+
+@portals_app.command("disable")
+def portals_disable(name_or_slug: str):
+    from .scan.portals_admin import disable
+    disable(name_or_slug)
+
+
+@portals_app.command("enable")
+def portals_enable(name_or_slug: str):
+    from .scan.portals_admin import enable
+    enable(name_or_slug)
 
 
 @app.command()
@@ -462,6 +507,20 @@ def round_update(round_id: int):
     from .rounds.cli import update_round
 
     update_round(round_id)
+
+
+@round_app.command("questions")
+def round_questions(
+    round_id: int,
+    list_: bool = typer.Option(False, "--list", help="List existing captured questions."),
+):
+    """Capture questions asked in a round (interactive, zero LLM)."""
+    from .rounds.cli import add_questions, list_questions
+
+    if list_:
+        list_questions(round_id)
+        return
+    add_questions(round_id)
 
 
 @app.command()

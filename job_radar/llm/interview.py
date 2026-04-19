@@ -27,22 +27,53 @@ def _system(cfg: Config) -> str:
     )
 
 
-def _user_prompt(cfg: Config, row) -> str:
+def _past_questions(conn, archetype: str | None, *, limit: int = 25) -> list[str]:
+    """Pull recent captured round_questions from same-archetype apps."""
+    if not archetype:
+        return []
+    rows = conn.execute(
+        """
+        SELECT q.question, q.topic_tags, q.difficulty, j.company
+        FROM round_questions q
+        JOIN interview_rounds r ON r.id = q.round_id
+        JOIN applications a ON a.id = r.application_id
+        JOIN jobs j ON j.id = a.job_id
+        WHERE a.archetype = ?
+        ORDER BY q.captured_at DESC
+        LIMIT ?
+        """,
+        (archetype, limit),
+    ).fetchall()
+    return [
+        f"- ({r['company']}, {r['topic_tags'] or 'no-tag'}, "
+        f"diff={r['difficulty'] or '?'}) {r['question']}"
+        for r in rows
+    ]
+
+
+def _user_prompt(cfg: Config, row, past_questions: list[str] | None = None) -> str:
     jd_path = cfg.root / (row["jd_path"] or "")
     jd_md = jd_path.read_text() if jd_path.exists() else ""
+    past = ""
+    if past_questions:
+        past = (
+            "\n\n## Previously asked questions (same-archetype roles)\n"
+            + "\n".join(past_questions)
+        )
     return (
         f"Company: {row['company']}\nRole: {row['title']}\nURL: {row['url']}\n"
         f"Location: {row['location'] or '-'} | Remote: {row['remote'] or '-'}\n"
         f"Comp: {row['comp_min']}–{row['comp_max']} {row['comp_currency'] or ''}\n\n"
-        f"---\n\n{jd_md}"
+        f"---\n\n{jd_md}{past}"
     )
 
 
 def _app_row(conn, app_id: int):
     return conn.execute(
         """
-        SELECT a.id AS app_id, j.id AS job_id, j.company, j.title, j.url, j.jd_path,
-               j.location, j.remote, j.comp_min, j.comp_max, j.comp_currency
+        SELECT a.id AS app_id, a.archetype, j.id AS job_id, j.company, j.title,
+               j.url, j.jd_path, j.location, j.remote, j.comp_min, j.comp_max,
+               j.comp_currency
         FROM applications a JOIN jobs j ON j.id = a.job_id
         WHERE a.id = ?
         """,
@@ -67,7 +98,8 @@ def run_interview_prep(app_id: int, *, force_prepare: bool = False) -> None:
         force=("queue" if force_prepare else None),
     )
     system = _system(cfg)
-    user = _user_prompt(cfg, row)
+    past = _past_questions(conn, row["archetype"])
+    user = _user_prompt(cfg, row, past_questions=past)
 
     if backend == "queue":
         assert isinstance(llm, QueueLLM)

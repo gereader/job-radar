@@ -27,3 +27,30 @@ def test_dealbreaker_short_circuits():
 def test_negative_tanks_score():
     r = screen("Intern Python Engineer", "", None, _rs())
     assert r.verdict == "skip"
+
+
+def test_transparency_state_flag_fires_when_no_comp_signal():
+    r = screen(
+        "Senior Engineer", "We use Kubernetes and Go. Great culture.",
+        "Seattle, WA", _rs(),
+        transparency_states=["WA"],
+    )
+    assert any("transparency" in reason for reason in r.reasons)
+
+
+def test_transparency_state_flag_silent_when_comp_present():
+    r = screen(
+        "Senior Engineer", "Comp range: $180k-$220k.",
+        "Seattle, WA", _rs(),
+        transparency_states=["WA"],
+    )
+    assert not any("transparency" in reason for reason in r.reasons)
+
+
+def test_transparency_state_flag_skipped_outside_state():
+    r = screen(
+        "Senior Engineer", "We're great.",
+        "Austin, TX", _rs(),
+        transparency_states=["WA", "CA"],
+    )
+    assert not any("transparency" in reason for reason in r.reasons)

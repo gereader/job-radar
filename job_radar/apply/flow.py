@@ -19,7 +19,11 @@ from .render import render_application
 console = Console()
 
 
-def run_apply(job_id: int, open_editor: bool = True) -> None:
+def run_apply(
+    job_id: int,
+    open_editor: bool = True,
+    referral_contact_id: int | None = None,
+) -> None:
     cfg = Config.load()
     cfg.ensure_dirs()
     conn = connect(cfg)
@@ -39,11 +43,22 @@ def run_apply(job_id: int, open_editor: bool = True) -> None:
         console.print(f"[yellow]application {existing['id']} already exists for job {job_id}[/yellow]")
         return
 
+    referral_name = None
+    if referral_contact_id:
+        c = conn.execute(
+            "SELECT id, name FROM contacts WHERE id = ?", (referral_contact_id,)
+        ).fetchone()
+        if not c:
+            console.print(f"[red]no contact {referral_contact_id}[/red]")
+            return
+        referral_name = c["name"]
+
     # Create row first so we have app_id for the directory.
     with tx(conn):
         cur = conn.execute(
-            "INSERT INTO applications(job_id, status) VALUES (?, 'Evaluated')",
-            (job_id,),
+            "INSERT INTO applications(job_id, status, referral_contact_id) "
+            "VALUES (?, 'Evaluated', ?)",
+            (job_id, referral_contact_id),
         )
         app_id = cur.lastrowid
 
@@ -65,6 +80,24 @@ def run_apply(job_id: int, open_editor: bool = True) -> None:
     if jd_src.exists():
         shutil.copy2(jd_src, jd_md)
 
+    # Pull cached app_answers — own app first, then any sibling at the
+    # same company (so a "why this company" answer is reused across roles).
+    cached_answers: dict[str, str] = {}
+    for row in conn.execute(
+        """
+        SELECT question_key, answer_md
+        FROM app_answers
+        WHERE application_id = ?
+           OR application_id IN (
+               SELECT a2.id FROM applications a2 JOIN jobs j2 ON j2.id = a2.job_id
+               WHERE lower(j2.company) = lower(?) AND a2.id != ?
+           )
+        ORDER BY (application_id = ?) DESC, updated_at DESC
+        """,
+        (app_id, job["company"], app_id, app_id),
+    ).fetchall():
+        cached_answers.setdefault(row["question_key"], row["answer_md"])
+
     # Render cover from template.
     cover_md = app_dir / "cover.md"
     if not cover_md.exists() and cfg.cover_template_path.exists():
@@ -73,6 +106,8 @@ def run_apply(job_id: int, open_editor: bool = True) -> None:
             cfg.profile,
             company=job["company"],
             role=job["title"],
+            cached_answers=cached_answers,
+            referral_name=referral_name,
         )
         cover_md.write_text(rendered)
 

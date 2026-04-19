@@ -51,6 +51,35 @@ def _field_text(fields: dict[str, str], field: str) -> str:
     return (fields.get(field, "") or "").lower()
 
 
+_COMP_HINT_RE = None  # lazy compile
+
+
+def _has_comp_signal(description: str) -> bool:
+    """Cheap check for any numeric/currency comp hint in the JD body."""
+    global _COMP_HINT_RE
+    if _COMP_HINT_RE is None:
+        import re
+        _COMP_HINT_RE = re.compile(
+            r"(\$|USD|GBP|EUR|£|€|salary|compensation|base\s+pay|"
+            r"\b\d{2,3}\s?[kK]\b|\b1?\d{2}[,.]\d{3}\b)",
+            re.I,
+        )
+    return bool(_COMP_HINT_RE.search(description or ""))
+
+
+def _location_in_transparency_state(loc: str | None, states: list[str]) -> bool:
+    """Match `City, ST` or 'Remote (CA)' against a list of state abbreviations."""
+    if not loc or not states:
+        return False
+    import re
+    upper_loc = loc.upper()
+    for st in states:
+        st_u = st.upper()
+        if re.search(rf"\b{st_u}\b", upper_loc):
+            return True
+    return False
+
+
 def screen(
     title: str,
     description: str,
@@ -58,6 +87,9 @@ def screen(
     ruleset: Ruleset,
     pass_at: int = 70,
     review_at: int = 40,
+    *,
+    transparency_states: list[str] | None = None,
+    transparency_weight: int = 8,
 ) -> ScreenResult:
     fields = {
         "title": title or "",
@@ -81,6 +113,17 @@ def screen(
         if rule.term.lower() in _field_text(fields, rule.field):
             score -= rule.weight
             reasons.append(f"-{rule.weight}:{rule.term}@{rule.field}")
+
+    # US salary-transparency-state hidden-comp signal.
+    if (
+        transparency_states
+        and _location_in_transparency_state(location, transparency_states)
+        and not _has_comp_signal(description)
+    ):
+        score -= transparency_weight
+        reasons.append(
+            f"-{transparency_weight}:salary-hidden-in-transparency-state@location"
+        )
 
     score = max(0, min(100, score))
     if score >= pass_at:
