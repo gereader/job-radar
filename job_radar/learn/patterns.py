@@ -102,6 +102,49 @@ def run_patterns() -> None:
         for r in worst_companies:
             md.append(f"- **{r['bucket']}** — consider disabling in portals.yml")
 
+    # Rejection reason categories (only present after `jr learn rejections`).
+    rej = conn.execute(
+        """
+        SELECT category, COUNT(*) AS n
+        FROM rejection_reasons
+        GROUP BY category
+        ORDER BY n DESC
+        """
+    ).fetchall()
+    if rej:
+        md.append("\n## Rejection reasons\n")
+        md.append("| Category | Count |\n|---|---|")
+        rej_table = Table(title="Rejection reasons by category")
+        rej_table.add_column("Category")
+        rej_table.add_column("Count", justify="right")
+        for r in rej:
+            md.append(f"| {r['category']} | {r['n']} |")
+            rej_table.add_row(r["category"], str(r["n"]))
+        console.print(rej_table)
+
+    # Ghost-company detector: ≥N apps in last 60 days, zero responses.
+    ghosted = conn.execute(
+        """
+        SELECT j.company, COUNT(*) AS apps
+        FROM applications a JOIN jobs j ON j.id = a.job_id
+        WHERE a.applied_at >= date('now', '-60 day')
+        GROUP BY j.company
+        HAVING apps >= 3
+           AND SUM(CASE WHEN a.status IN ('Responded','Interview','Offer','Rejected')
+                         THEN 1 ELSE 0 END) = 0
+        ORDER BY apps DESC
+        """
+    ).fetchall()
+    if ghosted:
+        md.append("\n## Ghost companies (≥3 apps in last 60d, zero response)\n")
+        gtable = Table(title="Ghost companies — consider `jr portals ghost-cooldown`")
+        gtable.add_column("Company")
+        gtable.add_column("Apps", justify="right")
+        for r in ghosted:
+            md.append(f"- **{r['company']}** — {r['apps']} apps, 0 responses")
+            gtable.add_row(r["company"], str(r["apps"]))
+        console.print(gtable)
+
     out = cfg.exports_dir / "patterns.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(md) + "\n")

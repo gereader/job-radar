@@ -119,6 +119,20 @@ def triage(
     run_triage(limit=limit, all_=all_, rank_debug=(rank == "debug"), force_prepare=prepare)
 
 
+@app.command("add")
+def add_cmd(
+    url: str = typer.Argument(..., help="JD URL to fetch and screen."),
+    force_review: bool = typer.Option(
+        True, "--review/--respect-screen",
+        help="Default: always land in review bucket. --respect-screen honors pass/skip.",
+    ),
+):
+    """Fetch a single JD URL, parse, screen, insert into the review bucket."""
+    from .scan.add_url import add_url
+
+    add_url(url, force_review=force_review)
+
+
 @app.command()
 def show(job_id: int):
     """Print a JD, its screen result, and triage verdict."""
@@ -333,6 +347,49 @@ def call():
     log_call_interactive()
 
 
+@app.command()
+def answers(
+    app_id: int | None = typer.Argument(None),
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest"),
+):
+    """Draft answers to common application questions for an app."""
+    from .llm.answers import ingest_answers, run_answers
+
+    if ingest is not None:
+        ingest_answers(ingest)
+        return
+    if app_id is None:
+        console.print("[red]usage:[/red] jr answers <app_id> | --ingest <dir>")
+        raise typer.Exit(2)
+    run_answers(app_id, force_prepare=prepare)
+
+
+@app.command()
+def outreach(
+    contact_id: int | None = typer.Option(None, "--contact", help="Contact id to message."),
+    company: str | None = typer.Option(None, "--company", help="Pick the most-recent contact at this company."),
+    kind: str = typer.Option("recruiter", "--kind",
+                              help="recruiter|hiring_manager|peer_engineer|alumni"),
+    ask: str = typer.Option("intro_chat", "--ask",
+                            help="intro_chat|referral|role_status|coffee"),
+    channel: str = typer.Option("linkedin", "--channel", help="linkedin|email"),
+    signal: str | None = typer.Option(None, "--signal", help="Recent context to weave in."),
+    prepare: bool = typer.Option(False, "--prepare"),
+    ingest: Path | None = typer.Option(None, "--ingest"),
+):
+    """Haiku draft of a short cold-outbound DM or email."""
+    from .llm.outreach import ingest_outreach, run_outreach
+
+    if ingest is not None:
+        ingest_outreach(ingest)
+        return
+    run_outreach(
+        contact_id=contact_id, company=company, kind=kind,
+        ask=ask, channel=channel, signal=signal, force_prepare=prepare,
+    )
+
+
 inbox_app = typer.Typer(help="Ingest LinkedIn/email threads.")
 app.add_typer(inbox_app, name="inbox")
 
@@ -449,6 +506,36 @@ def learn_keywords(
         ingest_learn_keywords(ingest)
         return
     run_learn_keywords(force_prepare=prepare)
+
+
+@learn_app.command("rejections")
+def learn_rejections(
+    limit: int = typer.Option(0, "--limit", help="Cap apps processed (default 10)."),
+    all_: bool = typer.Option(False, "--all"),
+    reextract: bool = typer.Option(
+        False, "--reextract",
+        help="Re-process apps that already have rejection_reasons rows.",
+    ),
+    rank: str | None = typer.Option(None, "--rank"),
+    prepare: bool = typer.Option(False, "--prepare"),
+    ingest: Path | None = typer.Option(None, "--ingest"),
+    show: bool = typer.Option(False, "--show", help="Print category breakdown only."),
+):
+    """Extract structured rejection reasons (location, comp, level, ...)."""
+    from .learn.rejections import (
+        ingest_learn_rejections, run_learn_rejections, show_breakdown,
+    )
+
+    if show:
+        show_breakdown()
+        return
+    if ingest is not None:
+        ingest_learn_rejections(ingest)
+        return
+    run_learn_rejections(
+        limit=limit, all_=all_, reextract=reextract,
+        rank_debug=(rank == "debug"), force_prepare=prepare,
+    )
 
 
 # --- contact subcommands ----------------------------------------------------

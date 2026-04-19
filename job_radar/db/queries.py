@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ..config import Config
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 8
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 

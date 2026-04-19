@@ -25,6 +25,43 @@ def _rows_to_dicts(rows) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _file_url(root: Path, rel: str | None) -> str | None:
+    if not rel:
+        return None
+    p = (root / rel).resolve()
+    return f"file://{p}"
+
+
+def _scan_app_artifacts(cfg: Config, app_id: int, company: str) -> dict[str, str | None]:
+    """Find latest artifacts in private/applications/<id-slug>/."""
+    from ..util.slugify import slugify
+    out: dict[str, str | None] = {
+        "jd_file_url": None,
+        "report_file_url": None,
+        "resume_pdf_url": None,
+        "cover_pdf_url": None,
+        "answers_url": None,
+        "interview_prep_url": None,
+        "offer_url": None,
+        "research_url": None,
+    }
+    app_dir = cfg.applications_dir / f"{app_id}-{slugify(company)}"
+    if not app_dir.exists():
+        return out
+    for prefix, key in (
+        ("report-", "report_file_url"),
+        ("interview-prep-", "interview_prep_url"),
+        ("offer-", "offer_url"),
+        ("company-", "research_url"),
+    ):
+        files = sorted(app_dir.glob(f"{prefix}*.md"), reverse=True)
+        if files:
+            out[key] = f"file://{files[0].resolve()}"
+    if (app_dir / "answers.md").exists():
+        out["answers_url"] = f"file://{(app_dir / 'answers.md').resolve()}"
+    return out
+
+
 def _collect(conn, cfg: Config) -> dict:
     target = (cfg.profile.get("targets") or {}).get("comp") or {}
     comp_target = {
@@ -38,19 +75,25 @@ def _collect(conn, cfg: Config) -> dict:
         SELECT j.id, j.company, j.title, j.location, j.remote,
                j.comp_min, j.comp_max, j.comp_currency,
                j.screen_verdict, j.screen_score, j.triage_verdict,
-               j.url, j.archived_at,
+               j.url, j.jd_path, j.archived_at,
                a.id AS app_id, a.status AS app_status, a.score AS app_score
         FROM jobs j
         LEFT JOIN applications a ON a.job_id = j.id
         ORDER BY j.id DESC
         """
     ).fetchall())
+    for row in pipeline:
+        row["jd_file_url"] = _file_url(cfg.root, row.get("jd_path"))
     apps = _rows_to_dicts(conn.execute(
         """
         SELECT a.id, a.status, a.score, a.applied_at, a.next_action_at,
                a.report_path, a.resume_pdf_path, a.cover_pdf_path,
-               j.company, j.title, j.url
-        FROM applications a JOIN jobs j ON j.id = a.job_id
+               a.referral_contact_id,
+               c.name AS referral_name,
+               j.company, j.title, j.url, j.jd_path
+        FROM applications a
+        JOIN jobs j ON j.id = a.job_id
+        LEFT JOIN contacts c ON c.id = a.referral_contact_id
         ORDER BY CASE a.status
           WHEN 'Offer' THEN 0 WHEN 'Interview' THEN 1 WHEN 'Responded' THEN 2
           WHEN 'Applied' THEN 3 WHEN 'Evaluated' THEN 4 WHEN 'SKIP' THEN 5
@@ -58,6 +101,18 @@ def _collect(conn, cfg: Config) -> dict:
           a.updated_at DESC
         """
     ).fetchall())
+    for row in apps:
+        artifacts = _scan_app_artifacts(cfg, row["id"], row["company"])
+        row.update(artifacts)
+        # Server-side computed file:// URLs win over the DB-relative ones for
+        # report/resume/cover when both exist.
+        row["jd_file_url"] = _file_url(cfg.root, row.get("jd_path"))
+        if not row.get("report_file_url"):
+            row["report_file_url"] = _file_url(cfg.root, row.get("report_path"))
+        if not row.get("resume_pdf_url"):
+            row["resume_pdf_url"] = _file_url(cfg.root, row.get("resume_pdf_path"))
+        if not row.get("cover_pdf_url"):
+            row["cover_pdf_url"] = _file_url(cfg.root, row.get("cover_pdf_path"))
     contacts = _rows_to_dicts(conn.execute(
         """
         SELECT c.id, c.name, c.company, c.title, c.linkedin_url, c.email,

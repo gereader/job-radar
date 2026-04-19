@@ -192,7 +192,10 @@ const pipeCols = [
   {k:'screen_verdict', label:'Screen', fmt:r => r.screen_verdict ? pill(`${r.screen_verdict} ${r.screen_score}`, r.screen_verdict) : ''},
   {k:'triage_verdict', label:'Triage', fmt:r => r.triage_verdict ? pill(r.triage_verdict, r.triage_verdict) : ''},
   {k:'app_status', label:'Status', fmt:r => r.app_status ? pill(r.app_status, r.app_status) : ''},
-  {k:'url', label:'JD', fmt:r => link(r.url, 'open')},
+  {k:'url', label:'JD', fmt:r => [
+    link(r.url, 'web'),
+    r.jd_file_url ? link(r.jd_file_url, 'md') : '',
+  ].filter(Boolean).join(' · ')},
 ];
 function renderPipeline() {
   const q = document.getElementById('pipeSearch').value.toLowerCase();
@@ -220,12 +223,20 @@ const appCols = [
   {k:'score', label:'Score'},
   {k:'applied_at', label:'Applied'},
   {k:'next_action_at', label:'Next'},
+  {k:'referral_name', label:'Referral'},
   {k:'report_path', label:'Artifacts', fmt:r => [
-    r.report_path ? link(r.report_path, 'report') : '',
-    r.resume_pdf_path ? link(r.resume_pdf_path, 'resume') : '',
-    r.cover_pdf_path ? link(r.cover_pdf_path, 'cover') : '',
+    r.report_file_url ? link(r.report_file_url, 'report') : '',
+    r.resume_pdf_url ? link(r.resume_pdf_url, 'resume') : '',
+    r.cover_pdf_url ? link(r.cover_pdf_url, 'cover') : '',
+    r.answers_url ? link(r.answers_url, 'answers') : '',
+    r.interview_prep_url ? link(r.interview_prep_url, 'prep') : '',
+    r.offer_url ? link(r.offer_url, 'offer') : '',
+    r.research_url ? link(r.research_url, 'research') : '',
   ].filter(Boolean).join(' · ')},
-  {k:'url', label:'JD', fmt:r => link(r.url, 'open')},
+  {k:'url', label:'JD', fmt:r => [
+    link(r.url, 'web'),
+    r.jd_file_url ? link(r.jd_file_url, 'md') : '',
+  ].filter(Boolean).join(' · ')},
 ];
 const appStatusSel = document.getElementById('appStatus');
 [...new Set(DATA.applications.map(a => a.status))].sort().forEach(s => {

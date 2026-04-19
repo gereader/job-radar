@@ -1,0 +1,32 @@
+# Common application essay questions to draft answers for.
+# `jr answers <app_id>` reads this file and produces one answer per
+# entry. Copy to private/questions.yml and customize per your roles.
+
+questions:
+  - key: why_company
+    text: Why do you want to work at this company?
+    hint: Anchor in something concrete from the JD or company URL.
+
+  - key: biggest_challenge
+    text: What is the biggest technical challenge you've solved?
+    hint: STAR format. Pull from story-bank.
+
+  - key: proudest_project
+    text: What project are you most proud of?
+    hint: Different from biggest_challenge — emphasize ownership and outcome.
+
+  - key: why_looking
+    text: Why are you looking to leave your current role?
+    hint: Be neutral about the current role; positive about what you're seeking.
+
+  - key: salary_expectations
+    text: What are your salary expectations?
+    hint: Defer to targets.comp band in profile.yml. Always a range.
+
+  - key: leadership_example
+    text: Describe a time you led without authority.
+    hint: STAR format. Cross-functional or peer leadership counts.
+
+  - key: failure
+    text: Tell me about a time you failed.
+    hint: Real failure with a real lesson. Avoid humblebrag failures.
