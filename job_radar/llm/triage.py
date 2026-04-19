@@ -117,7 +117,7 @@ def _pre_skip_already_seen(conn, cfg: Config) -> int:
         JOIN jobs j2 ON j2.id = a.job_id
         WHERE j.triage_verdict IS NULL
           AND j.screen_verdict IN ('review','pass')
-          AND j2.company = j.company
+          AND LOWER(TRIM(j2.company)) = LOWER(TRIM(j.company))
           AND LOWER(TRIM(j2.title)) = LOWER(TRIM(j.title))
         """
     ).fetchall()
