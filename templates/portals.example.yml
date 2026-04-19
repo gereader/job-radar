@@ -5,22 +5,21 @@
 
 title_filter:
   # Applied after portal fetch, before keyword screen. Cheap string contains.
-  positive:
-    - "engineer"
-    - "architect"
-    - "automation"
-  negative:
-    - "intern"
-    - "manager"         # unless you target management
-    - "sales"
+  # Customize to YOUR target role family — the terms below are illustrative,
+  # not a default.
+  positive: []      # e.g. ["engineer", "architect", "designer", "product manager"]
+  negative: []      # e.g. ["intern", "manager"] if you're an IC, or ["junior"] at a different level
 
 companies:
-  - { name: "Anthropic",     source: greenhouse, slug: "anthropic",     enabled: true }
-  - { name: "Stripe",        source: greenhouse, slug: "stripe",        enabled: true }
-  - { name: "Cloudflare",    source: greenhouse, slug: "cloudflare",    enabled: true }
-  - { name: "Vercel",        source: greenhouse, slug: "vercel",        enabled: true }
-  - { name: "Ramp",          source: ashby,      slug: "ramp",          enabled: true }
-  - { name: "Linear",        source: ashby,      slug: "linear",        enabled: true }
-  - { name: "Notion",        source: lever,      slug: "notion",        enabled: true }
-  - { name: "Figma",         source: lever,      slug: "figma",         enabled: true }
-  # add more — scanners are zero-token, enable generously.
+  # Seed set: one valid entry per supported source. Replace with the
+  # companies YOU care about — the list below exists to illustrate
+  # schema and source values, not to recommend who to scan. Scanners
+  # are zero-token, so enable generously once you've curated your list.
+  #
+  # Supported sources: greenhouse | ashby | lever | workable | linkedin | manual
+  - { name: "Example Greenhouse Co", source: greenhouse, slug: "example-slug",   enabled: false }
+  - { name: "Example Ashby Co",      source: ashby,      slug: "example-slug",   enabled: false }
+  - { name: "Example Lever Co",      source: lever,      slug: "example-slug",   enabled: false }
+  # Tip: find a company's slug by visiting their careers page and looking
+  # for boards.greenhouse.io/<slug> / jobs.ashbyhq.com/<slug> /
+  # jobs.lever.co/<slug> in the HTML or network tab.
