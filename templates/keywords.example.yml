@@ -3,23 +3,30 @@
 # `field` restricts where a term must match: any|title|description|location
 # `weight` is added (positive) or subtracted (negative) from the score.
 # `dealbreaker` terms drop the verdict to "skip" regardless of score.
+#
+# The entries below are EXAMPLES to illustrate the schema. Replace them
+# with your own — the right keywords depend entirely on what role you're
+# targeting, what stack you work in, and what you want to avoid. The
+# example role here is "generic software IC," not a prescription.
 
 positive:
-  - { term: "python",            weight: 8,  field: any }
-  - { term: "automation",        weight: 6,  field: any }
-  - { term: "platform",          weight: 5,  field: any }
-  - { term: "senior",            weight: 4,  field: title }
-  - { term: "staff",             weight: 6,  field: title }
-  - { term: "principal",         weight: 8,  field: title }
-  - { term: "remote",            weight: 5,  field: any }
+  # Language / stack you want to see
+  - { term: "your-primary-language",  weight: 8, field: any }
+  - { term: "your-primary-framework", weight: 5, field: any }
+  # Location / remote preference
+  - { term: "remote",                 weight: 5, field: any }
+  # Level keywords that match your seniority
+  - { term: "senior",                 weight: 4, field: title }
 
 negative:
-  - { term: "java",              weight: 4,  field: any }
-  - { term: "c++",               weight: 4,  field: any }
-  - { term: "junior",            weight: 6,  field: title }
-  - { term: "intern",            weight: 10, field: title }
+  # Languages / stacks you don't want
+  - { term: "a-language-you-avoid",   weight: 4, field: any }
+  # Wrong-level roles
+  - { term: "junior",                 weight: 6,  field: title }
+  - { term: "intern",                 weight: 10, field: title }
 
 dealbreaker:
-  - { term: "on-site bay area",   field: location }
-  - { term: "5 days in office",   field: description }
-  - { term: "security clearance", field: description }
+  # Examples — replace with your own. Each term here triggers an
+  # unconditional skip regardless of score.
+  - { term: "REPLACE_WITH_YOUR_LOCATION_DEALBREAKER", field: location }
+  - { term: "REPLACE_WITH_YOUR_POLICY_DEALBREAKER",   field: description }
