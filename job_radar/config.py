@@ -101,3 +101,12 @@ class Config:
             self.exports_dir,
         ):
             p.mkdir(parents=True, exist_ok=True)
+
+    def relpath(self, p: Path) -> str:
+        """Path relative to cfg.root, robust when private/ is outside the repo.
+
+        ``Path.relative_to`` raises if the target isn't a subpath; ``os.path.
+        relpath`` returns a ``..``-traversal version instead. Both work when
+        joined back via ``cfg.root / stored``.
+        """
+        return os.path.relpath(str(p), str(self.root))

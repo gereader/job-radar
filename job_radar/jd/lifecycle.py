@@ -42,7 +42,7 @@ def archive_old(older_than_days: int = 90) -> None:
         with tx(conn):
             conn.execute(
                 "UPDATE jobs SET archived_at = datetime('now'), jd_path = ? WHERE id = ?",
-                (str(dest.relative_to(cfg.root)), r["id"]),
+                (cfg.relpath(dest), r["id"]),
             )
         moved += 1
     console.print(f"[green]archived {moved} JDs[/green] older than {older_than_days} days")

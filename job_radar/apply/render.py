@@ -64,13 +64,13 @@ def render_application(app_id: int) -> None:
         pdf = resume_md.with_suffix(".pdf")
         _render_pdf(resume_md, pdf, css_path)
         if pdf.exists():
-            updates["resume_pdf_path"] = str(pdf.relative_to(cfg.root))
+            updates["resume_pdf_path"] = cfg.relpath(pdf)
             console.print(f"[green]resume.pdf[/green] → {pdf}")
     if cover_md.exists():
         pdf = cover_md.with_suffix(".pdf")
         _render_pdf(cover_md, pdf, css_path)
         if pdf.exists():
-            updates["cover_pdf_path"] = str(pdf.relative_to(cfg.root))
+            updates["cover_pdf_path"] = cfg.relpath(pdf)
             console.print(f"[green]cover.pdf[/green] → {pdf}")
 
     if updates:

@@ -48,7 +48,7 @@ def _copy_user_files(src: Path, cfg: Config) -> None:
         if a.exists() and not b.exists():
             b.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(a, b)
-            console.print(f"[green]copied[/green] {a.name} → {b.relative_to(cfg.root)}")
+            console.print(f"[green]copied[/green] {a.name} → {cfg.relpath(b)}")
 
 
 _ROW_RE = re.compile(r"^\|\s*(\d+)\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$")
@@ -131,7 +131,7 @@ def _import_jds(src: Path, cfg: Config, conn) -> int:
                 INSERT OR IGNORE INTO jobs(hash, source, company, title, url, jd_path, screen_verdict)
                 VALUES (?, 'imported', ?, ?, '', ?, 'pass')
                 """,
-                (h, company, title, str(target.relative_to(cfg.root))),
+                (h, company, title, cfg.relpath(target)),
             )
         n += 1
     return n
@@ -167,7 +167,7 @@ def _import_reports(src: Path, cfg: Config, conn) -> int:
         with tx(conn):
             conn.execute(
                 "UPDATE applications SET report_path = ? WHERE id = ?",
-                (str(dest.relative_to(cfg.root)), app_id),
+                (cfg.relpath(dest), app_id),
             )
         n += 1
     return n

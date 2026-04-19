@@ -189,7 +189,7 @@ def _apply_extraction(
             (
                 resolved_app, contact_id, channel, direction,
                 data.get("occurred_at"), data.get("summary"),
-                str(src_path.relative_to(cfg.root)),
+                cfg.relpath(src_path),
             ),
         )
         touch_id = cur.lastrowid

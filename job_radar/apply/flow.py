@@ -121,8 +121,8 @@ def run_apply(
             WHERE id = ?
             """,
             (
-                str(resume_md.relative_to(cfg.root)),
-                str(cover_md.relative_to(cfg.root)),
+                cfg.relpath(resume_md),
+                cfg.relpath(cover_md),
                 app_id,
             ),
         )

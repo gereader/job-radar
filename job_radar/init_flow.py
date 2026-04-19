@@ -31,13 +31,13 @@ def run_init(private: Path | None = None) -> None:
     for src, dest in examples.items():
         if not dest.exists() and src.exists():
             shutil.copy2(src, dest)
-            console.print(f"[green]seeded[/green] {dest.relative_to(cfg.root)}")
+            console.print(f"[green]seeded[/green] {dest.resolve()}")
         elif dest.exists():
-            console.print(f"[yellow]kept[/yellow]   {dest.relative_to(cfg.root)}")
+            console.print(f"[yellow]kept[/yellow]   {dest.resolve()}")
 
     conn = connect(cfg)
     v = migrate(conn)
-    console.print(f"DB migrated to schema v{v} at {cfg.db_path.relative_to(cfg.root)}")
+    console.print(f"DB migrated to schema v{v} at {cfg.db_path.resolve()}")
 
     console.print(
         "\n[bold]Next:[/bold] edit [cyan]private/profile.yml[/cyan], "

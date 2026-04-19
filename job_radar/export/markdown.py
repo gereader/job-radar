@@ -43,7 +43,7 @@ def export_all() -> None:
         )
         + "\n"
     )
-    console.print(f"[green]exported[/green] {out.relative_to(cfg.root)}")
+    console.print(f"[green]exported[/green] {cfg.relpath(out)}")
 
     # contacts.md
     rows = conn.execute(
@@ -63,7 +63,7 @@ def export_all() -> None:
         )
         + "\n"
     )
-    console.print(f"[green]exported[/green] {out.relative_to(cfg.root)}")
+    console.print(f"[green]exported[/green] {cfg.relpath(out)}")
 
     # outreach.md
     rows = conn.execute(
@@ -86,4 +86,4 @@ def export_all() -> None:
         )
         + "\n"
     )
-    console.print(f"[green]exported[/green] {out.relative_to(cfg.root)}")
+    console.print(f"[green]exported[/green] {cfg.relpath(out)}")

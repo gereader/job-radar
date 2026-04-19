@@ -265,7 +265,7 @@ def run_scan(portal: str | None = None, limit: int = 0, dry_run: bool = False) -
                         ch, raw.source, raw.source_id, raw.company, raw.title,
                         raw.location or fields.location, fields.remote, raw.url,
                         fields.comp_min, fields.comp_max, fields.comp_currency,
-                        raw.posted_at, str(jd_path.relative_to(cfg.root)),
+                        raw.posted_at, cfg.relpath(jd_path),
                         result.verdict, result.score, result.as_json_reasons(),
                     ),
                 )

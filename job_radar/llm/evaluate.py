@@ -75,7 +75,7 @@ def _persist_report(cfg: Config, conn, app_id: int, company: str, content: str) 
     with tx(conn):
         conn.execute(
             "UPDATE applications SET report_path = ? WHERE id = ?",
-            (str(report_path.relative_to(cfg.root)), app_id),
+            (cfg.relpath(report_path), app_id),
         )
     return report_path
 

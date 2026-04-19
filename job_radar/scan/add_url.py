@@ -165,7 +165,7 @@ def add_url(url: str, *, force_review: bool = True) -> int | None:
                 ch, source, source_id, company, title,
                 fields.location, fields.remote, url,
                 fields.comp_min, fields.comp_max, fields.comp_currency,
-                str(jd_path.relative_to(cfg.root)),
+                cfg.relpath(jd_path),
                 verdict, result.score, result.as_json_reasons(),
             ),
         )
@@ -183,6 +183,6 @@ def add_url(url: str, *, force_review: bool = True) -> int | None:
     console.print(
         f"[green]added job {job_id}[/green] {company} / {title} "
         f"(score={result.score} → {verdict})\n"
-        f"[dim]{jd_path.relative_to(cfg.root)}[/dim]"
+        f"[dim]{cfg.relpath(jd_path)}[/dim]"
     )
     return job_id
