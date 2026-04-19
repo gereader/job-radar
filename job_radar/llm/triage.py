@@ -85,7 +85,35 @@ def _value_score(row: Any) -> float:
 
 
 def _auto_advance(conn) -> tuple[int, int]:
-    """Cheap heuristic before Haiku spend: very-good and very-bad rows."""
+    """Cheap heuristic before Haiku spend: very-good and very-bad rows.
+
+    Also pre-skips any job whose (company, normalized_title) matches a job
+    already linked to an application — we've already seen the role, don't
+    pay to re-triage a repost.
+    """
+    already_seen = conn.execute(
+        """
+        SELECT j.id FROM jobs j
+        WHERE j.triage_verdict IS NULL
+          AND j.screen_verdict IN ('review','pass')
+          AND EXISTS (
+            SELECT 1 FROM applications a
+            JOIN jobs j2 ON j2.id = a.job_id
+            WHERE j2.id != j.id
+              AND j2.company = j.company
+              AND LOWER(TRIM(j2.title)) = LOWER(TRIM(j.title))
+          )
+        """
+    ).fetchall()
+    skipped_already = 0
+    for r in already_seen:
+        with tx(conn):
+            conn.execute(
+                "UPDATE jobs SET triage_verdict=?, triage_notes=? WHERE id=?",
+                ("skip", '{"source":"auto-advance","reason":"already_seen"}', r["id"]),
+            )
+            skipped_already += 1
+
     auto = conn.execute(
         """
         SELECT id, screen_score, screen_reasons
@@ -94,6 +122,7 @@ def _auto_advance(conn) -> tuple[int, int]:
         """
     ).fetchall()
     skipped_auto = passed_auto = 0
+    skipped_auto += skipped_already
     for r in auto:
         try:
             reasons = json.loads(r["screen_reasons"] or "[]")
