@@ -4,6 +4,11 @@ Python-first job search pipeline. Scan portals, dedup, screen, triage, apply,
 track contacts, prep interviews, evaluate offers — with Claude only doing the
 judgment work.
 
+> Built on ideas from [santifer/career-ops](https://github.com/santifer/career-ops).
+> `job-radar` is a rebuild focused on cutting Claude token cost, and adding
+> first-class contacts CRM, interview-round tracking, offer negotiation, and
+> a static dashboard. See [Credit](#credit) at the bottom.
+
 **Why:** hand-rolled LLM loops burn tokens re-reading the same CV and comp
 data for every job. `job-radar` does the deterministic work in Python
 (scanning, hashing, dedup, keyword screening, comp lookup, PDF rendering)
