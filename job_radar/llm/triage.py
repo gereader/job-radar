@@ -17,6 +17,7 @@ always slice the top N (default 10) before either backend touches anything.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -84,35 +85,77 @@ def _value_score(row: Any) -> float:
     return score + positives * 5 - age_days * 0.2
 
 
-def _auto_advance(conn) -> tuple[int, int]:
-    """Cheap heuristic before Haiku spend: very-good and very-bad rows.
+_WORD_RE = re.compile(r"[a-z0-9]+")
 
-    Also pre-skips any job whose (company, normalized_title) matches a job
-    already linked to an application — we've already seen the role, don't
-    pay to re-triage a repost.
+
+def _jaccard(a: str, b: str) -> float:
+    ta = set(_WORD_RE.findall(a.lower()))
+    tb = set(_WORD_RE.findall(b.lower()))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _pre_skip_already_seen(conn, cfg: Config) -> int:
+    """Skip jobs whose body closely matches an application-linked twin.
+
+    Candidate twins share (company, normalized_title). Confirmation path:
+      - If both the candidate and twin have JD files on disk, require a
+        Jaccard similarity above the configured threshold (defaults 0.80).
+      - If the twin has no JD body (e.g. career-ops-imported apps), fall
+        back to the title-match alone.
     """
-    already_seen = conn.execute(
+    threshold = float(
+        (cfg.profile.get("scoring") or {}).get("dup_jaccard_threshold", 0.80)
+    )
+    candidates = conn.execute(
         """
-        SELECT j.id FROM jobs j
+        SELECT j.id AS new_id, j.jd_path AS new_jd,
+               j2.id AS old_id, j2.jd_path AS old_jd
+        FROM jobs j
+        JOIN applications a ON a.job_id != j.id
+        JOIN jobs j2 ON j2.id = a.job_id
         WHERE j.triage_verdict IS NULL
           AND j.screen_verdict IN ('review','pass')
-          AND EXISTS (
-            SELECT 1 FROM applications a
-            JOIN jobs j2 ON j2.id = a.job_id
-            WHERE j2.id != j.id
-              AND j2.company = j.company
-              AND LOWER(TRIM(j2.title)) = LOWER(TRIM(j.title))
-          )
+          AND j2.company = j.company
+          AND LOWER(TRIM(j2.title)) = LOWER(TRIM(j.title))
         """
     ).fetchall()
-    skipped_already = 0
-    for r in already_seen:
+
+    # A new row may match multiple old twins; the first hit wins.
+    decided: dict[int, str] = {}
+    for c in candidates:
+        nid = c["new_id"]
+        if nid in decided:
+            continue
+        new_path = cfg.root / c["new_jd"] if c["new_jd"] else None
+        old_path = cfg.root / c["old_jd"] if c["old_jd"] else None
+        new_body = new_path.read_text() if new_path and new_path.exists() else ""
+        old_body = old_path.read_text() if old_path and old_path.exists() else ""
+        if new_body and old_body:
+            sim = _jaccard(new_body, old_body)
+            if sim >= threshold:
+                decided[nid] = f"already_seen_jaccard_{sim:.2f}"
+        elif not old_body:
+            decided[nid] = "already_seen_title_only"
+
+    for nid, reason in decided.items():
+        note = json.dumps({"source": "auto-advance", "reason": reason})
         with tx(conn):
             conn.execute(
                 "UPDATE jobs SET triage_verdict=?, triage_notes=? WHERE id=?",
-                ("skip", '{"source":"auto-advance","reason":"already_seen"}', r["id"]),
+                ("skip", note, nid),
             )
-            skipped_already += 1
+    return len(decided)
+
+
+def _auto_advance(conn, cfg: Config) -> tuple[int, int]:
+    """Cheap heuristic before Haiku spend: very-good and very-bad rows.
+
+    Also pre-skips any job whose body closely matches an already-applied
+    twin (see ``_pre_skip_already_seen``).
+    """
+    skipped_already = _pre_skip_already_seen(conn, cfg)
 
     auto = conn.execute(
         """
@@ -213,7 +256,7 @@ def run_triage(
     conn = connect(cfg)
     migrate(conn)
 
-    passed_auto, skipped_auto = _auto_advance(conn)
+    passed_auto, skipped_auto = _auto_advance(conn, cfg)
     if passed_auto or skipped_auto:
         console.print(
             f"[cyan]auto-advanced[/cyan] pass={passed_auto} skip={skipped_auto} "
