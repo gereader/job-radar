@@ -1,0 +1,61 @@
+# profile.yml — personal config. Lives under private/, gitignored.
+identity:
+  name: "Your Name"
+  email: "you@example.com"
+  phone: ""
+  location: "City, ST"
+  timezone: "America/Los_Angeles"
+  links:
+    linkedin: ""
+    github: ""
+    portfolio: ""
+
+targets:
+  titles:
+    - "Senior Software Engineer"
+    - "Staff Engineer"
+  archetypes:
+    - name: "primary-archetype"
+      priority: 10
+      description: "What you most want to do next."
+    - name: "secondary-archetype"
+      priority: 5
+      description: "Adjacent fit."
+  comp:
+    min: 180000
+    target: 220000
+    max: 280000
+    currency: "USD"
+  location_policy: "remote"   # remote|hybrid|onsite|flexible
+  remote_regions: ["US"]
+  dealbreakers:
+    - "on-site in SF Bay Area"
+    - "5+ days/week office"
+
+narrative:
+  superpower: ""
+  best_achievement: ""
+  excites: []
+  drains: []
+
+scoring:
+  # 0-100 pre-screen thresholds. Jobs >= pass_at skip LLM triage.
+  pass_at: 70
+  review_at: 40
+  # below review_at → skip (no LLM work).
+  # 0-5 triage threshold — above this, offer to auto-run company research.
+  research_threshold: 4.0
+  # Auto-prune JDs whose triage score_0_5 is at or below this. The JD file
+  # is deleted and the job is archived, but its hash is kept so re-scans
+  # recognize and skip it without re-fetching. Set to 0 to disable.
+  auto_prune_below: 1.5
+
+llm:
+  # Model IDs. Keep Haiku for triage, Sonnet for evals, Opus for offers.
+  triage_model: "claude-haiku-4-5-20251001"
+  eval_model:   "claude-sonnet-4-6"
+  offers_model: "claude-opus-4-7"
+
+jd_lifecycle:
+  active_days: 90      # move unapplied JDs to archive after N days
+  purge_days: 365      # delete from disk after N days (hash kept)

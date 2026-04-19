@@ -1,0 +1,25 @@
+# keywords.yml — pre-screen rules. Zero LLM, pure Python scorer.
+#
+# `field` restricts where a term must match: any|title|description|location
+# `weight` is added (positive) or subtracted (negative) from the score.
+# `dealbreaker` terms drop the verdict to "skip" regardless of score.
+
+positive:
+  - { term: "python",            weight: 8,  field: any }
+  - { term: "automation",        weight: 6,  field: any }
+  - { term: "platform",          weight: 5,  field: any }
+  - { term: "senior",            weight: 4,  field: title }
+  - { term: "staff",             weight: 6,  field: title }
+  - { term: "principal",         weight: 8,  field: title }
+  - { term: "remote",            weight: 5,  field: any }
+
+negative:
+  - { term: "java",              weight: 4,  field: any }
+  - { term: "c++",               weight: 4,  field: any }
+  - { term: "junior",            weight: 6,  field: title }
+  - { term: "intern",            weight: 10, field: title }
+
+dealbreaker:
+  - { term: "on-site bay area",   field: location }
+  - { term: "5 days in office",   field: description }
+  - { term: "security clearance", field: description }

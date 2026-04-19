@@ -1,0 +1,26 @@
+# portals.yml — job boards to scan. One entry per company.
+#
+# Supported sources: greenhouse | ashby | lever | workable | linkedin | manual
+# The `slug` is the portal-native identifier (e.g. the subdomain).
+
+title_filter:
+  # Applied after portal fetch, before keyword screen. Cheap string contains.
+  positive:
+    - "engineer"
+    - "architect"
+    - "automation"
+  negative:
+    - "intern"
+    - "manager"         # unless you target management
+    - "sales"
+
+companies:
+  - { name: "Anthropic",     source: greenhouse, slug: "anthropic",     enabled: true }
+  - { name: "Stripe",        source: greenhouse, slug: "stripe",        enabled: true }
+  - { name: "Cloudflare",    source: greenhouse, slug: "cloudflare",    enabled: true }
+  - { name: "Vercel",        source: greenhouse, slug: "vercel",        enabled: true }
+  - { name: "Ramp",          source: ashby,      slug: "ramp",          enabled: true }
+  - { name: "Linear",        source: ashby,      slug: "linear",        enabled: true }
+  - { name: "Notion",        source: lever,      slug: "notion",        enabled: true }
+  - { name: "Figma",         source: lever,      slug: "figma",         enabled: true }
+  # add more — scanners are zero-token, enable generously.

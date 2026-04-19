@@ -1,0 +1,12 @@
+@page { size: Letter; margin: 0.6in 0.75in; }
+body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+       font-size: 10.5pt; color: #111; line-height: 1.35; }
+h1 { font-size: 20pt; margin: 0 0 0.1em; border-bottom: 2px solid #333;
+     padding-bottom: 0.1em; }
+h2 { font-size: 12pt; text-transform: uppercase; letter-spacing: 0.05em;
+     border-bottom: 1px solid #999; margin: 1em 0 0.3em; }
+h3 { font-size: 11pt; margin: 0.6em 0 0.1em; }
+p, li { margin: 0.1em 0 0.3em; }
+ul { padding-left: 1.1em; margin: 0.2em 0 0.6em; }
+strong { font-weight: 600; }
+a { color: #111; text-decoration: none; }

@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>job-radar</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --muted: #8a95a5; --fg: #e6ebf2;
+    --accent: #6fb2ff; --good: #4cd38a; --warn: #f5c457; --bad: #ff7a7a;
+    --border: #242932;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#fafafa; --panel:#fff; --muted:#666; --fg:#111;
+            --accent:#0366d6; --border:#e4e6ea; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font: 14px/1.4 -apple-system,"SF Pro Text",Segoe UI,Inter,Arial,sans-serif; }
+  header { padding:18px 24px; border-bottom:1px solid var(--border);
+           display:flex; gap:16px; align-items:baseline; }
+  header h1 { margin:0; font-size:18px; }
+  header .muted { color:var(--muted); font-size:12px; }
+  nav { display:flex; gap:4px; padding:0 24px;
+        border-bottom:1px solid var(--border); background:var(--panel); }
+  nav button { background:none; border:0; color:var(--fg); padding:10px 14px;
+               font-size:13px; cursor:pointer; border-bottom:2px solid transparent; }
+  nav button.active { border-bottom-color:var(--accent); color:var(--accent); }
+  main { padding:18px 24px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr));
+          gap:12px; margin-bottom:18px; }
+  .card { background:var(--panel); border:1px solid var(--border);
+          border-radius:8px; padding:14px; }
+  .card .label { color:var(--muted); font-size:11px; text-transform:uppercase;
+                 letter-spacing:0.06em; }
+  .card .value { font-size:22px; font-weight:600; margin-top:4px; }
+  .filter { display:flex; gap:8px; margin-bottom:10px; align-items:center; }
+  .filter input, .filter select {
+    background:var(--panel); color:var(--fg); border:1px solid var(--border);
+    border-radius:6px; padding:6px 10px; font-size:13px;
+  }
+  table { width:100%; border-collapse:collapse; background:var(--panel);
+          border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  th, td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--border);
+           font-size:13px; vertical-align:top; }
+  th { background:var(--panel); color:var(--muted); font-weight:600;
+       cursor:pointer; user-select:none; position:sticky; top:0; }
+  tr:hover td { background:rgba(111,178,255,0.04); }
+  td a { color:var(--accent); text-decoration:none; }
+  td a:hover { text-decoration:underline; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:10px;
+          font-size:11px; font-weight:600; background:var(--border); }
+  .pill.pass { background:#1d3d2a; color:var(--good); }
+  .pill.review { background:#3d341d; color:var(--warn); }
+  .pill.skip { background:#3d1d1d; color:var(--bad); }
+  .pill.Applied, .pill.Interview, .pill.Responded, .pill.Offer
+    { background:#1d3d2a; color:var(--good); }
+  .pill.Evaluated { background:#1d2d3d; color:var(--accent); }
+  .pill.Rejected, .pill.Discarded, .pill.SKIP { background:#3d1d1d; color:var(--bad); }
+  .section { display:none; }
+  .section.active { display:block; }
+  .truncate { max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>job-radar</h1>
+  <span class="muted" id="genAt"></span>
+</header>
+<nav id="tabs">
+  <button data-tab="summary" class="active">Summary</button>
+  <button data-tab="pipeline">Pipeline</button>
+  <button data-tab="applications">Applications</button>
+  <button data-tab="contacts">Contacts</button>
+  <button data-tab="outreach">Outreach</button>
+  <button data-tab="rounds">Rounds</button>
+  <button data-tab="followups">Follow-ups</button>
+  <button data-tab="costs">Costs</button>
+</nav>
+<main>
+  <section id="summary" class="section active">
+    <div class="grid" id="statusCards"></div>
+    <div class="grid" id="screenCards"></div>
+  </section>
+  <section id="pipeline" class="section">
+    <div class="filter">
+      <input id="pipeSearch" placeholder="search company / role">
+      <select id="pipeVerdict">
+        <option value="">all screens</option>
+        <option>pass</option><option>review</option><option>skip</option>
+      </select>
+    </div>
+    <div id="pipeTableWrap"></div>
+  </section>
+  <section id="applications" class="section">
+    <div class="filter">
+      <input id="appSearch" placeholder="search company / role">
+      <select id="appStatus">
+        <option value="">all statuses</option>
+      </select>
+    </div>
+    <div id="appTableWrap"></div>
+  </section>
+  <section id="contacts" class="section">
+    <div id="contactsTableWrap"></div>
+  </section>
+  <section id="outreach" class="section">
+    <div id="outreachTableWrap"></div>
+  </section>
+  <section id="rounds" class="section">
+    <div id="roundsTableWrap"></div>
+  </section>
+  <section id="followups" class="section">
+    <div id="followupsTableWrap"></div>
+  </section>
+  <section id="costs" class="section">
+    <div id="costsTableWrap"></div>
+  </section>
+</main>
+
+<script>
+const DATA = /*__JR_DATA__*/{};
+
+function el(tag, attrs, children) {
+  const e = document.createElement(tag);
+  for (const k in (attrs||{})) {
+    if (k === 'class') e.className = attrs[k];
+    else if (k === 'html') e.innerHTML = attrs[k];
+    else e.setAttribute(k, attrs[k]);
+  }
+  (children||[]).forEach(c => e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c));
+  return e;
+}
+function pill(txt, kind) {
+  return `<span class="pill ${kind||txt}">${txt}</span>`;
+}
+function fmtComp(lo, hi, cur) {
+  if (!lo && !hi) return '';
+  const c = cur || 'USD';
+  const fmt = n => n ? '$' + Math.round(n/1000) + 'k' : '?';
+  const target = DATA.comp_target || {};
+  let klass = '';
+  if (target.min && target.max && (lo || hi)) {
+    const top = hi || lo;
+    const bot = lo || hi;
+    if (top < target.min) klass = 'skip';
+    else if (bot >= target.target) klass = 'pass';
+    else klass = 'review';
+  }
+  const text = `${fmt(lo)}–${fmt(hi)} ${c}`;
+  return klass ? `<span class="pill ${klass}">${text}</span>` : text;
+}
+function link(url, txt) {
+  if (!url) return txt || '';
+  return `<a href="${url}" target="_blank">${txt || url}</a>`;
+}
+function mkTable(rows, cols) {
+  if (!rows.length) return '<p class="muted">nothing yet.</p>';
+  const headHtml = cols.map(c => `<th data-k="${c.k}">${c.label}</th>`).join('');
+  const bodyHtml = rows.map(r =>
+    '<tr>' + cols.map(c => `<td class="${c.cls||''}">${c.fmt ? c.fmt(r) : (r[c.k] ?? '')}</td>`).join('') + '</tr>'
+  ).join('');
+  return `<table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`;
+}
+
+document.getElementById('genAt').textContent = 'generated ' + DATA.generated_at;
+
+// tabs
+document.getElementById('tabs').addEventListener('click', (e) => {
+  if (!e.target.dataset.tab) return;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b === e.target));
+  document.querySelectorAll('.section').forEach(s => s.classList.toggle('active', s.id === e.target.dataset.tab));
+});
+
+// summary
+const statusCards = document.getElementById('statusCards');
+DATA.status_counts.forEach(r => {
+  statusCards.innerHTML += `<div class="card"><div class="label">${r.status}</div><div class="value">${r.n}</div></div>`;
+});
+const screenCards = document.getElementById('screenCards');
+DATA.screen_counts.forEach(r => {
+  screenCards.innerHTML += `<div class="card"><div class="label">screen: ${r.v}</div><div class="value">${r.n}</div></div>`;
+});
+
+// pipeline
+const pipeCols = [
+  {k:'id', label:'#'},
+  {k:'company', label:'Company'},
+  {k:'title', label:'Role', cls:'truncate'},
+  {k:'location', label:'Where'},
+  {k:'remote', label:'Remote'},
+  {k:'comp', label:'Comp', fmt:r => fmtComp(r.comp_min, r.comp_max, r.comp_currency)},
+  {k:'screen_verdict', label:'Screen', fmt:r => r.screen_verdict ? pill(`${r.screen_verdict} ${r.screen_score}`, r.screen_verdict) : ''},
+  {k:'triage_verdict', label:'Triage', fmt:r => r.triage_verdict ? pill(r.triage_verdict, r.triage_verdict) : ''},
+  {k:'app_status', label:'Status', fmt:r => r.app_status ? pill(r.app_status, r.app_status) : ''},
+  {k:'url', label:'JD', fmt:r => link(r.url, 'open')},
+];
+function renderPipeline() {
+  const q = document.getElementById('pipeSearch').value.toLowerCase();
+  const v = document.getElementById('pipeVerdict').value;
+  const rows = DATA.pipeline.filter(r => {
+    if (v && r.screen_verdict !== v) return false;
+    if (q) {
+      const hay = `${r.company} ${r.title}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  document.getElementById('pipeTableWrap').innerHTML = mkTable(rows, pipeCols);
+}
+document.getElementById('pipeSearch').addEventListener('input', renderPipeline);
+document.getElementById('pipeVerdict').addEventListener('change', renderPipeline);
+renderPipeline();
+
+// applications
+const appCols = [
+  {k:'id', label:'#'},
+  {k:'status', label:'Status', fmt:r => pill(r.status, r.status)},
+  {k:'company', label:'Company'},
+  {k:'title', label:'Role', cls:'truncate'},
+  {k:'score', label:'Score'},
+  {k:'applied_at', label:'Applied'},
+  {k:'next_action_at', label:'Next'},
+  {k:'report_path', label:'Artifacts', fmt:r => [
+    r.report_path ? link(r.report_path, 'report') : '',
+    r.resume_pdf_path ? link(r.resume_pdf_path, 'resume') : '',
+    r.cover_pdf_path ? link(r.cover_pdf_path, 'cover') : '',
+  ].filter(Boolean).join(' · ')},
+  {k:'url', label:'JD', fmt:r => link(r.url, 'open')},
+];
+const appStatusSel = document.getElementById('appStatus');
+[...new Set(DATA.applications.map(a => a.status))].sort().forEach(s => {
+  appStatusSel.innerHTML += `<option>${s}</option>`;
+});
+function renderApps() {
+  const q = document.getElementById('appSearch').value.toLowerCase();
+  const s = document.getElementById('appStatus').value;
+  const rows = DATA.applications.filter(r => {
+    if (s && r.status !== s) return false;
+    if (q) {
+      const hay = `${r.company} ${r.title}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  document.getElementById('appTableWrap').innerHTML = mkTable(rows, appCols);
+}
+document.getElementById('appSearch').addEventListener('input', renderApps);
+document.getElementById('appStatus').addEventListener('change', renderApps);
+renderApps();
+
+// contacts
+document.getElementById('contactsTableWrap').innerHTML = mkTable(DATA.contacts, [
+  {k:'id', label:'#'}, {k:'name', label:'Name'},
+  {k:'company', label:'Company'}, {k:'title', label:'Title'},
+  {k:'linkedin_url', label:'LinkedIn', fmt:r => link(r.linkedin_url, 'open')},
+  {k:'email', label:'Email'}, {k:'touches', label:'Touches'},
+  {k:'last_touch', label:'Last touch'},
+]);
+
+// outreach
+document.getElementById('outreachTableWrap').innerHTML = mkTable(DATA.touchpoints, [
+  {k:'occurred_at', label:'When'},
+  {k:'channel', label:'Channel'},
+  {k:'direction', label:'Dir'},
+  {k:'company', label:'Company'},
+  {k:'title', label:'Role', cls:'truncate'},
+  {k:'contact', label:'Contact'},
+  {k:'summary', label:'Summary', cls:'truncate'},
+]);
+
+// followups
+document.getElementById('followupsTableWrap').innerHTML = mkTable(DATA.followups, [
+  {k:'id', label:'App'}, {k:'company', label:'Company'},
+  {k:'title', label:'Role', cls:'truncate'},
+  {k:'status', label:'Status', fmt:r => pill(r.status, r.status)},
+  {k:'due', label:'Due'}, {k:'last_touch', label:'Last touch'},
+]);
+
+// rounds
+document.getElementById('roundsTableWrap').innerHTML = mkTable(DATA.rounds, [
+  {k:'application_id', label:'App'},
+  {k:'round_number', label:'#'},
+  {k:'kind', label:'Kind'},
+  {k:'scheduled_at', label:'When'},
+  {k:'company', label:'Company'},
+  {k:'title', label:'Role', cls:'truncate'},
+  {k:'interviewer_name', label:'Interviewer'},
+  {k:'status', label:'Status'},
+  {k:'outcome', label:'Outcome'},
+  {k:'thank_you_sent_at', label:'Thanks?', fmt:r => r.thank_you_sent_at ? 'yes' : 'no'},
+]);
+
+// costs
+document.getElementById('costsTableWrap').innerHTML = mkTable(DATA.costs, [
+  {k:'day', label:'Day'}, {k:'operation', label:'Op'}, {k:'model', label:'Model'},
+  {k:'calls', label:'Calls'}, {k:'in_tok', label:'In'},
+  {k:'out_tok', label:'Out'}, {k:'cache_tok', label:'Cached'},
+]);
+</script>
+</body>
+</html>
