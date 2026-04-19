@@ -149,40 +149,60 @@ def _pre_skip_already_seen(conn, cfg: Config) -> int:
     return len(decided)
 
 
-# Tokens that confirm a role is US-open. Split into two patterns so the
-# 2-letter state codes don't match common English words ("in", "or", "co"):
-#   - phrases/cities: matched case-insensitively
-#   - state abbrevs: matched case-sensitively and must follow ", "
-_US_PHRASE_RE = re.compile(
-    r"\b(united states|usa|u\.s\.a?\.?|"
-    r"us[-\s](?:remote|only|based)|remote[-\s](?:us|in the us|anywhere in the us)|"
-    r"new york|nyc|san francisco|seattle|bellevue|austin|"
-    r"boston|chicago|los angeles|denver|portland|philadelphia|"
-    r"washington, ?d\.?c\.?|sunnyvale|livingston|dallas|atlanta|miami)\b",
-    re.I,
-)
-_US_STATE_RE = re.compile(
-    r",\s*(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|"
-    r"MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|"
-    r"UT|VT|VA|WA|WV|WI|WY)\b"
-)
+def _build_geo_marker_regex(cfg: Config) -> tuple[re.Pattern | None, re.Pattern | None]:
+    """Build (phrase_re, state_re) from profile.targets.geo_markers.
 
-
-def _has_us_marker(text: str) -> bool:
-    if not text:
-        return False
-    return bool(_US_PHRASE_RE.search(text) or _US_STATE_RE.search(text))
-
-
-def _pre_skip_non_us_geo(conn, cfg: Config) -> int:
-    """Auto-skip roles with a non-US-only location.
-
-    A role is treated as US-open when any US marker (state abbrev, major
-    city, 'United States'/'USA', 'US remote'/'remote US', or a generic
-    'remote' token) appears either in the ``location`` field or in the
-    first few KB of the JD body. Only rows with *zero* US markers in
-    both places get auto-skipped.
+    Returns (None, None) when the filter is unconfigured — the geo
+    pre-skip is off by default and each user opts in via their own
+    profile.yml.
     """
+    # Support both a top-level `geo_markers:` block and a nested
+    # `targets.geo_markers` layout so existing profiles can opt in either way.
+    targets = cfg.profile.get("targets") or {}
+    gm = (
+        cfg.profile.get("geo_markers")
+        or targets.get("geo_markers")
+        or {}
+    )
+    phrases = [p for p in (gm.get("phrases") or []) if p]
+    states = [s for s in (gm.get("state_codes") or []) if s]
+    phrase_re = None
+    state_re = None
+    if phrases:
+        phrase_re = re.compile(
+            r"\b(" + "|".join(re.escape(p) for p in phrases) + r")\b", re.I
+        )
+    if states:
+        # Case-sensitive and must follow a comma so English words like
+        # "in" / "or" / "co" / "de" don't trip the filter.
+        state_re = re.compile(
+            r",\s*(" + "|".join(re.escape(s) for s in states) + r")\b"
+        )
+    return phrase_re, state_re
+
+
+def _pre_skip_mismatched_geo(conn, cfg: Config) -> int:
+    """Auto-skip roles whose location doesn't match any configured marker.
+
+    Reads the marker list from ``profile.targets.geo_markers``. If the
+    list is empty or missing, no filtering happens. Otherwise a role is
+    kept when any marker is found in the ``location`` field or in the
+    first few KB of the JD body; else it's skipped with reason
+    ``geo_mismatch``.
+    """
+    phrase_re, state_re = _build_geo_marker_regex(cfg)
+    if phrase_re is None and state_re is None:
+        return 0
+
+    def _hit(text: str) -> bool:
+        if not text:
+            return False
+        if phrase_re and phrase_re.search(text):
+            return True
+        if state_re and state_re.search(text):
+            return True
+        return False
+
     rows = conn.execute(
         """
         SELECT id, location, jd_path FROM jobs
@@ -194,17 +214,16 @@ def _pre_skip_non_us_geo(conn, cfg: Config) -> int:
     for r in rows:
         loc = (r["location"] or "").strip()
         if not loc:
-            # Empty location — leave for the LLM to judge.
-            continue
+            continue  # Empty location — leave for the LLM to judge.
         jd_body = ""
         if r["jd_path"]:
             p = cfg.root / r["jd_path"]
             if p.exists():
                 jd_body = p.read_text()[:4000]
-        if _has_us_marker(loc) or _has_us_marker(jd_body):
+        if _hit(loc) or _hit(jd_body):
             continue
         note = json.dumps(
-            {"source": "auto-advance", "reason": "non_us_geo", "location": loc}
+            {"source": "auto-advance", "reason": "geo_mismatch", "location": loc}
         )
         with tx(conn):
             conn.execute(
@@ -221,11 +240,11 @@ def _auto_advance(conn, cfg: Config) -> tuple[int, int]:
     Also pre-skips:
       - jobs whose body closely matches an already-applied twin
         (see ``_pre_skip_already_seen``)
-      - jobs whose location is non-US-only with no US remote signal
-        (see ``_pre_skip_non_us_geo``)
+      - jobs whose location doesn't match the markers configured in
+        ``profile.targets.geo_markers`` (see ``_pre_skip_mismatched_geo``)
     """
     skipped_already = _pre_skip_already_seen(conn, cfg)
-    skipped_geo = _pre_skip_non_us_geo(conn, cfg)
+    skipped_geo = _pre_skip_mismatched_geo(conn, cfg)
 
     auto = conn.execute(
         """

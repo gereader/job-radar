@@ -31,6 +31,19 @@ targets:
   dealbreakers:
     - "on-site in SF Bay Area"
     - "5+ days/week office"
+  # Optional geo pre-filter for `jr triage` auto-skip. If both lists are
+  # empty or missing, the filter is off — every role goes to the LLM.
+  # Populate with location markers that should KEEP a role in the queue;
+  # roles whose location field and JD body contain none of these are
+  # auto-skipped with reason "geo_mismatch" (zero LLM cost).
+  #
+  # Example for a US-only candidate:
+  #   geo_markers:
+  #     phrases: ["United States", "USA", "US remote", "Seattle", "New York", "San Francisco"]
+  #     state_codes: [CA, NY, WA, TX, MA, IL, CO, OR, NJ]   # matched case-sensitively, must follow ", "
+  geo_markers:
+    phrases: []
+    state_codes: []
 
 narrative:
   superpower: ""
