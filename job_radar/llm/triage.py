@@ -390,3 +390,5 @@ def ingest_triage(queue_dir: Path) -> None:
 
     console.print(table)
     console.print(f"[green]ingest complete[/green] — {queue_dir}")
+    from ..dash.build import rebuild_silently
+    rebuild_silently()

@@ -210,3 +210,15 @@ def build_dashboard(open_browser: bool = True) -> Path:
     if open_browser:
         webbrowser.open(f"file://{out}")
     return out
+
+
+def rebuild_silently() -> None:
+    """Best-effort dashboard rebuild; swallows errors.
+
+    Called from state-changing ingest points so the HTML view stays
+    current without requiring a separate `jr dash` run.
+    """
+    try:
+        build_dashboard(open_browser=False)
+    except Exception as e:
+        console.print(f"[dim]dash rebuild skipped: {e}[/dim]")

@@ -158,3 +158,5 @@ def ingest_evaluate(queue_dir: Path) -> None:
             job_id=job_id, app_id=app_id,
         )
     console.print(f"\n[green]ingest complete[/green] — {queue_dir}")
+    from ..dash.build import rebuild_silently
+    rebuild_silently()

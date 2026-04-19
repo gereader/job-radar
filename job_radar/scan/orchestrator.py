@@ -292,3 +292,5 @@ def run_scan(portal: str | None = None, limit: int = 0, dry_run: bool = False) -
         f"added={added} dup={dupes} skip={skipped} review={to_review} pass={to_pass} "
         f"workers={max_workers} rate_ms={rate_ms}"
     )
+    from ..dash.build import rebuild_silently
+    rebuild_silently()

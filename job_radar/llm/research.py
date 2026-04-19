@@ -101,3 +101,5 @@ def ingest_research(queue_dir: Path) -> None:
         console.print(f"[green]research[/green] job={job_id} → {out}")
         log_queue_ingest(conn, operation="research", item_count=1, job_id=job_id)
     console.print(f"\n[green]ingest complete[/green] — {queue_dir}")
+    from ..dash.build import rebuild_silently
+    rebuild_silently()

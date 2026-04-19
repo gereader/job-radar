@@ -157,3 +157,5 @@ def run_apply(
             console.print(f"editor '{editor}' not found — open manually.")
 
     render_application(app_id)
+    from ..dash.build import rebuild_silently
+    rebuild_silently()
