@@ -200,12 +200,31 @@ def touch(
 @app.command()
 def followup(
     draft: int | None = typer.Option(None, "--draft", help="App id to draft a message for."),
+    draft_all: bool = typer.Option(
+        False, "--draft-all", help="Draft a follow-up for every app due in the queue.",
+    ),
+    limit: int = typer.Option(0, "--limit", help="Cap drafts (default 10) when --draft-all."),
+    all_: bool = typer.Option(False, "--all", help="Process every due app with --draft-all."),
+    rank: str | None = typer.Option(None, "--rank", help="'debug' prints rank, no packets."),
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest", help="Fold drafts back."),
 ):
-    """Show queued follow-ups; with --draft, Haiku composes a check-in."""
-    from .contacts.followup import show_queue, draft_followup
+    """Show queued follow-ups; with --draft / --draft-all, Haiku drafts."""
+    from .contacts.followup import (
+        draft_followup, draft_followup_all, ingest_followup, show_queue,
+    )
 
+    if ingest is not None:
+        ingest_followup(ingest)
+        return
+    if draft_all:
+        draft_followup_all(
+            limit=limit, all_=all_, rank_debug=(rank == "debug"),
+            force_prepare=prepare,
+        )
+        return
     if draft is not None:
-        draft_followup(draft)
+        draft_followup(draft, force_prepare=prepare)
     else:
         show_queue()
 
@@ -275,11 +294,34 @@ def inbox_paste(
     file: Path | None = typer.Option(None, "--file", "-f"),
     app_id: int | None = typer.Option(None, "--app", help="Link to this application."),
     draft: bool = typer.Option(False, "--draft", help="After ingest, Haiku drafts a reply."),
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest", help="Fold extraction back."),
 ):
     """Paste raw text (LinkedIn DM, email thread). Haiku extracts fields."""
-    from .ingest.paste import ingest_paste
+    from .ingest.paste import ingest_paste, ingest_paste_results
 
-    ingest_paste(file=file, app_id=app_id, draft=draft)
+    if ingest is not None:
+        ingest_paste_results(ingest)
+        return
+    ingest_paste(file=file, app_id=app_id, draft=draft, force_prepare=prepare)
+
+
+@inbox_app.command("draft")
+def inbox_draft(
+    touch_id: int | None = typer.Argument(None, help="Touchpoint id to draft a reply for."),
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest", help="Fold draft back."),
+):
+    """Haiku draft of a reply for an existing inbound touchpoint."""
+    from .ingest.paste import draft_reply, ingest_draft
+
+    if ingest is not None:
+        ingest_draft(ingest)
+        return
+    if touch_id is None:
+        console.print("[red]usage:[/red] jr inbox draft <touch_id> | --ingest <dir>")
+        raise typer.Exit(2)
+    draft_reply(touch_id, force_prepare=prepare)
 
 
 @inbox_app.command("email")
@@ -318,11 +360,29 @@ def round_update(round_id: int):
 
 
 @app.command()
-def thanks(round_id: int):
-    """Haiku draft of a thank-you note for a completed round."""
-    from .llm.thanks import run_thanks
+def thanks(
+    round_id: int | None = typer.Argument(None, help="Round id; omit with --due for bulk."),
+    due: bool = typer.Option(False, "--due", help="Draft for every completed-but-unsent round."),
+    limit: int = typer.Option(0, "--limit", help="Cap rounds processed (0 = default 10)."),
+    all_: bool = typer.Option(False, "--all", help="Process every due round."),
+    rank: str | None = typer.Option(None, "--rank", help="'debug' prints rank, no packets."),
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest", help="Fold drafts back from queue dir."),
+):
+    """Haiku draft of a thank-you note. Single round, or --due bulk."""
+    from .llm.thanks import ingest_thanks, run_thanks, run_thanks_due
 
-    run_thanks(round_id)
+    if ingest is not None:
+        ingest_thanks(ingest)
+        return
+    if due:
+        run_thanks_due(limit=limit, all_=all_, rank_debug=(rank == "debug"),
+                       force_prepare=prepare)
+        return
+    if round_id is None:
+        console.print("[red]usage:[/red] jr thanks <round_id> | --due | --ingest <dir>")
+        raise typer.Exit(2)
+    run_thanks(round_id, force_prepare=prepare)
 
 
 learn_app = typer.Typer(help="Learning loops (human-in-the-loop).")
@@ -330,11 +390,17 @@ app.add_typer(learn_app, name="learn")
 
 
 @learn_app.command("keywords")
-def learn_keywords():
+def learn_keywords(
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest", help="Fold proposals back."),
+):
     """Propose new negative/positive keywords from outcome history."""
-    from .learn.keywords import run_learn_keywords
+    from .learn.keywords import ingest_learn_keywords, run_learn_keywords
 
-    run_learn_keywords()
+    if ingest is not None:
+        ingest_learn_keywords(ingest)
+        return
+    run_learn_keywords(force_prepare=prepare)
 
 
 # --- contact subcommands ----------------------------------------------------
