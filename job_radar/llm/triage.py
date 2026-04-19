@@ -150,6 +150,16 @@ def _apply_verdict(conn, cfg: Config, job_id: int, parsed: dict[str, Any], jd_re
     except (TypeError, ValueError):
         s05 = 0.0
     if prune_at and s05 and s05 <= prune_at:
+        # Safety: never prune a job whose application is in the active
+        # funnel — Applied/Responded/Interview/Offer should never have
+        # their JD file deleted regardless of triage score.
+        active = conn.execute(
+            "SELECT 1 FROM applications WHERE job_id = ? AND status IN "
+            "('Applied','Responded','Interview','Offer') LIMIT 1",
+            (job_id,),
+        ).fetchone()
+        if active:
+            return
         jd_full = cfg.root / jd_rel
         try:
             if jd_full.exists():

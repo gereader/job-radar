@@ -1,7 +1,23 @@
-"""Run all configured portals, dedup, save JDs, run pre-screen."""
+"""Run all configured portals, dedup, save JDs, run pre-screen.
+
+Parallelism: per-portal HTTP work runs concurrently in a thread pool
+(configurable, default 8 workers). Each portal sleeps a small amount
+before its first request to avoid stampeding upstream APIs at t=0.
+
+Dedup chain (cheapest first):
+  1. ``ghosted_until`` skip on the portal entry itself (fast yaml check).
+  2. URL hash (zero-parse).
+  3. (source, source_id) hit (zero-parse, second cheap gate added in
+     Block 3 — most reposts share the portal-native id even when the URL
+     mutates).
+  4. Content hash (one parse).
+"""
 
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -50,27 +66,67 @@ def _title_allowed(title: str, filt: dict) -> bool:
     return True
 
 
-def _iter_portal_jobs(portals_cfg: dict, only: str | None) -> Iterable[RawJob]:
+def _entry_ghosted(entry: dict) -> bool:
+    """Honor a ``ghosted_until: YYYY-MM-DD`` field on the portals.yml entry."""
+    until = entry.get("ghosted_until")
+    if not until:
+        return False
+    try:
+        d = date.fromisoformat(str(until))
+    except ValueError:
+        return False
+    return d > date.today()
+
+
+def _fetch_one_portal(
+    entry: dict, filt: dict, client: httpx.Client, rate_ms: int,
+) -> list[RawJob]:
+    """Run one scanner end-to-end. Returns list (not generator) so it's
+    safe to ferry across threads."""
+    if rate_ms > 0:
+        time.sleep(rate_ms / 1000.0)
+    scanner = SCANNERS.get(entry.get("source")) or _load_optional_scanner(
+        entry.get("source", "")
+    )
+    if scanner is None:
+        console.print(f"[yellow]skip[/yellow] unknown source: {entry}")
+        return []
+    try:
+        return [
+            j for j in scanner.fetch(entry["slug"], entry["name"], client=client)
+            if _title_allowed(j.title, filt)
+        ]
+    except Exception as e:
+        console.print(f"[red]{entry['name']} {entry['source']}: {e}[/red]")
+        return []
+
+
+def _iter_portal_jobs(
+    portals_cfg: dict, only: str | None, *, max_workers: int, rate_ms: int,
+) -> Iterable[RawJob]:
     filt = portals_cfg.get("title_filter", {}) or {}
+    entries = []
+    for entry in portals_cfg.get("companies", []) or []:
+        if not entry.get("enabled", True):
+            continue
+        if _entry_ghosted(entry):
+            continue
+        if only and entry.get("slug") != only and entry.get("name") != only:
+            continue
+        entries.append(entry)
+
+    if not entries:
+        return
+
     client = httpx.Client(timeout=20.0, follow_redirects=True)
     try:
-        for entry in portals_cfg.get("companies", []) or []:
-            if not entry.get("enabled", True):
-                continue
-            if only and entry.get("slug") != only and entry.get("name") != only:
-                continue
-            scanner = SCANNERS.get(entry.get("source")) or _load_optional_scanner(
-                entry.get("source", "")
-            )
-            if scanner is None:
-                console.print(f"[yellow]skip[/yellow] unknown source: {entry}")
-                continue
-            try:
-                for j in scanner.fetch(entry["slug"], entry["name"], client=client):
-                    if _title_allowed(j.title, filt):
-                        yield j
-            except Exception as e:
-                console.print(f"[red]{entry['name']} {entry['source']}: {e}[/red]")
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(_fetch_one_portal, e, filt, client, rate_ms): e
+                for e in entries
+            }
+            for fut in as_completed(futures):
+                yield from fut.result()
     finally:
         client.close()
 
@@ -103,11 +159,20 @@ def run_scan(portal: str | None = None, limit: int = 0, dry_run: bool = False) -
     pass_at = (cfg.profile.get("scoring") or {}).get("pass_at", 70)
     review_at = (cfg.profile.get("scoring") or {}).get("review_at", 40)
 
+    scan_cfg = (cfg.profile.get("scan") or {})
+    max_workers = int(scan_cfg.get("max_workers") or 8)
+    rate_ms = int(scan_cfg.get("rate_ms") or 250)
+
     seen_url_hashes = {
         r[0] for r in conn.execute("SELECT url_hash FROM scan_history").fetchall()
     }
     seen_content_hashes = {
         r[0] for r in conn.execute("SELECT hash FROM jobs").fetchall()
+    }
+    seen_source_ids: set[tuple[str, str]] = {
+        (r[0], r[1]) for r in conn.execute(
+            "SELECT source, source_id FROM jobs WHERE source_id IS NOT NULL"
+        ).fetchall()
     }
 
     added = 0
@@ -118,7 +183,9 @@ def run_scan(portal: str | None = None, limit: int = 0, dry_run: bool = False) -
 
     with Progress(console=console, transient=True) as progress:
         task = progress.add_task("scanning", total=None)
-        for raw in _iter_portal_jobs(portals_cfg, portal):
+        for raw in _iter_portal_jobs(
+            portals_cfg, portal, max_workers=max_workers, rate_ms=rate_ms,
+        ):
             progress.advance(task)
             uh = url_hash(raw.url)
             if uh in seen_url_hashes:
@@ -128,6 +195,22 @@ def run_scan(portal: str | None = None, limit: int = 0, dry_run: bool = False) -
                         "UPDATE scan_history SET last_seen=datetime('now') WHERE url_hash=?",
                         (uh,),
                     )
+                continue
+
+            # Cheap second gate: portal-native (source, source_id) — most
+            # reposts keep the same id even when the URL mutates.
+            if raw.source_id and (raw.source, str(raw.source_id)) in seen_source_ids:
+                dupes += 1
+                with tx(conn):
+                    conn.execute(
+                        """
+                        INSERT INTO scan_history(url_hash, url, source, outcome)
+                        VALUES (?, ?, ?, 'duplicate')
+                        ON CONFLICT(url_hash) DO UPDATE SET last_seen=datetime('now')
+                        """,
+                        (uh, raw.url, raw.source),
+                    )
+                seen_url_hashes.add(uh)
                 continue
 
             md = raw.body_markdown or html_to_markdown(raw.body_html)
@@ -196,11 +279,14 @@ def run_scan(portal: str | None = None, limit: int = 0, dry_run: bool = False) -
                 )
             seen_url_hashes.add(uh)
             seen_content_hashes.add(ch)
+            if raw.source_id:
+                seen_source_ids.add((raw.source, str(raw.source_id)))
             added += 1
             if limit and added >= limit:
                 break
 
     console.print(
         f"[green]scan done[/green] "
-        f"added={added} dup={dupes} skip={skipped} review={to_review} pass={to_pass}"
+        f"added={added} dup={dupes} skip={skipped} review={to_review} pass={to_pass} "
+        f"workers={max_workers} rate_ms={rate_ms}"
     )

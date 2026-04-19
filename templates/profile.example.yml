@@ -45,10 +45,14 @@ scoring:
   # below review_at → skip (no LLM work).
   # 0-5 triage threshold — above this, offer to auto-run company research.
   research_threshold: 4.0
-  # Auto-prune JDs whose triage score_0_5 is at or below this. The JD file
-  # is deleted and the job is archived, but its hash is kept so re-scans
-  # recognize and skip it without re-fetching. Set to 0 to disable.
-  auto_prune_below: 1.5
+  # Auto-prune JDs whose triage score_0_5 is AT or BELOW this threshold.
+  # The JD file is deleted and the job row is archived, but its content hash
+  # stays in the DB so future scans recognize and skip it.
+  #
+  # Default: 0.0 (off). Set to a value like 1.0 or 1.5 to opt in.
+  # Safety: applications already in Applied/Responded/Interview/Offer are
+  # ALWAYS exempt — auto-prune cannot delete a JD attached to active work.
+  auto_prune_below: 0.0
 
 llm:
   # Model IDs. Keep Haiku for triage, Sonnet for evals, Opus for offers.
@@ -56,6 +60,21 @@ llm:
   eval_model:   "claude-sonnet-4-6"
   offers_model: "claude-opus-4-7"
 
+# Limits for LLM-emitting commands. Each command pre-ranks in pure Python
+# and slices to default_llm_batch by default; pass --limit N or --all to override.
+limits:
+  default_llm_batch: 10
+
+# Concurrency knobs for `jr scan`.
+scan:
+  max_workers: 8          # parallel portal fetches
+  rate_ms: 250            # wait this many ms before each portal's first request
+
 jd_lifecycle:
   active_days: 90      # move unapplied JDs to archive after N days
   purge_days: 365      # delete from disk after N days (hash kept)
+
+# US salary-transparency states. JDs in these locations that omit any
+# numeric comp signal will get a `salary-hidden-in-transparency-state`
+# screen reason and lose the configured weight from keywords.yml.
+transparency_states: [WA, CA, CO, NY, IL, MD, RI, HI]
