@@ -96,10 +96,50 @@ def _jaccard(a: str, b: str) -> float:
     return len(ta & tb) / len(ta | tb)
 
 
+# Abbreviations that get expanded before title comparison so a literal
+# lookup treats common role-family variants as the same string.
+_TITLE_ABBREV: dict[str, str] = {
+    "sre": "site reliability engineer",
+    "swe": "software engineer",
+    "devex": "developer experience",
+    "k8s": "kubernetes",
+    "ml": "machine learning",
+}
+
+_PAREN_RE = re.compile(r"\([^)]*\)")
+_PUNCT_RE = re.compile(r"[,\-_/&|:\\]")
+_SPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_title(t: str | None) -> str:
+    """Canonicalize a job title for equality comparison.
+
+    Applied transforms (in order):
+      1. lowercase + strip
+      2. drop parenthetical suffixes like "(Kubernetes, AWS & Terraform)"
+      3. expand known abbreviations at word boundaries (SRE, SWE, ML, ...)
+      4. replace punctuation (,-_/&|:) with a single space
+      5. collapse whitespace
+    """
+    if not t:
+        return ""
+    s = t.lower().strip()
+    s = _PAREN_RE.sub(" ", s)
+    for ab, full in _TITLE_ABBREV.items():
+        s = re.sub(rf"\b{re.escape(ab)}\b", full, s)
+    s = _PUNCT_RE.sub(" ", s)
+    s = _SPACE_RE.sub(" ", s).strip()
+    return s
+
+
 def _pre_skip_already_seen(conn, cfg: Config) -> int:
     """Skip jobs whose body closely matches an application-linked twin.
 
-    Candidate twins share (company, normalized_title). Confirmation path:
+    Candidate twins share (company, normalized_title) — see
+    ``_normalize_title`` for the canonical form, which treats abbreviations
+    (SRE ↔ Site Reliability Engineer, ML ↔ Machine Learning, ...) and
+    parenthetical suffixes ("(Kubernetes, AWS & Terraform)") as identical.
+    Confirmation path:
       - If both the candidate and twin have JD files on disk, require a
         Jaccard similarity above the configured threshold (defaults 0.80).
       - If the twin has no JD body (e.g. career-ops-imported apps), fall
@@ -108,17 +148,18 @@ def _pre_skip_already_seen(conn, cfg: Config) -> int:
     threshold = float(
         (cfg.profile.get("scoring") or {}).get("dup_jaccard_threshold", 0.80)
     )
+    # Company match is still SQL (cheap, indexable); title match moves to
+    # Python so we can apply ``_normalize_title`` to both sides.
     candidates = conn.execute(
         """
-        SELECT j.id AS new_id, j.jd_path AS new_jd,
-               j2.id AS old_id, j2.jd_path AS old_jd
+        SELECT j.id AS new_id, j.title AS new_title, j.jd_path AS new_jd,
+               j2.id AS old_id, j2.title AS old_title, j2.jd_path AS old_jd
         FROM jobs j
         JOIN applications a ON a.job_id != j.id
         JOIN jobs j2 ON j2.id = a.job_id
         WHERE j.triage_verdict IS NULL
           AND j.screen_verdict IN ('review','pass')
           AND LOWER(TRIM(j2.company)) = LOWER(TRIM(j.company))
-          AND LOWER(TRIM(j2.title)) = LOWER(TRIM(j.title))
         """
     ).fetchall()
 
@@ -127,6 +168,8 @@ def _pre_skip_already_seen(conn, cfg: Config) -> int:
     for c in candidates:
         nid = c["new_id"]
         if nid in decided:
+            continue
+        if _normalize_title(c["new_title"]) != _normalize_title(c["old_title"]):
             continue
         new_path = cfg.root / c["new_jd"] if c["new_jd"] else None
         old_path = cfg.root / c["old_jd"] if c["old_jd"] else None
