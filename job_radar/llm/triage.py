@@ -149,13 +149,83 @@ def _pre_skip_already_seen(conn, cfg: Config) -> int:
     return len(decided)
 
 
+# Tokens that confirm a role is US-open. Split into two patterns so the
+# 2-letter state codes don't match common English words ("in", "or", "co"):
+#   - phrases/cities: matched case-insensitively
+#   - state abbrevs: matched case-sensitively and must follow ", "
+_US_PHRASE_RE = re.compile(
+    r"\b(united states|usa|u\.s\.a?\.?|"
+    r"us[-\s](?:remote|only|based)|remote[-\s](?:us|in the us|anywhere in the us)|"
+    r"new york|nyc|san francisco|seattle|bellevue|austin|"
+    r"boston|chicago|los angeles|denver|portland|philadelphia|"
+    r"washington, ?d\.?c\.?|sunnyvale|livingston|dallas|atlanta|miami)\b",
+    re.I,
+)
+_US_STATE_RE = re.compile(
+    r",\s*(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|"
+    r"MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|"
+    r"UT|VT|VA|WA|WV|WI|WY)\b"
+)
+
+
+def _has_us_marker(text: str) -> bool:
+    if not text:
+        return False
+    return bool(_US_PHRASE_RE.search(text) or _US_STATE_RE.search(text))
+
+
+def _pre_skip_non_us_geo(conn, cfg: Config) -> int:
+    """Auto-skip roles with a non-US-only location.
+
+    A role is treated as US-open when any US marker (state abbrev, major
+    city, 'United States'/'USA', 'US remote'/'remote US', or a generic
+    'remote' token) appears either in the ``location`` field or in the
+    first few KB of the JD body. Only rows with *zero* US markers in
+    both places get auto-skipped.
+    """
+    rows = conn.execute(
+        """
+        SELECT id, location, jd_path FROM jobs
+        WHERE triage_verdict IS NULL
+          AND screen_verdict IN ('review','pass')
+        """
+    ).fetchall()
+    skipped = 0
+    for r in rows:
+        loc = (r["location"] or "").strip()
+        if not loc:
+            # Empty location — leave for the LLM to judge.
+            continue
+        jd_body = ""
+        if r["jd_path"]:
+            p = cfg.root / r["jd_path"]
+            if p.exists():
+                jd_body = p.read_text()[:4000]
+        if _has_us_marker(loc) or _has_us_marker(jd_body):
+            continue
+        note = json.dumps(
+            {"source": "auto-advance", "reason": "non_us_geo", "location": loc}
+        )
+        with tx(conn):
+            conn.execute(
+                "UPDATE jobs SET triage_verdict=?, triage_notes=? WHERE id=?",
+                ("skip", note, r["id"]),
+            )
+        skipped += 1
+    return skipped
+
+
 def _auto_advance(conn, cfg: Config) -> tuple[int, int]:
     """Cheap heuristic before Haiku spend: very-good and very-bad rows.
 
-    Also pre-skips any job whose body closely matches an already-applied
-    twin (see ``_pre_skip_already_seen``).
+    Also pre-skips:
+      - jobs whose body closely matches an already-applied twin
+        (see ``_pre_skip_already_seen``)
+      - jobs whose location is non-US-only with no US remote signal
+        (see ``_pre_skip_non_us_geo``)
     """
     skipped_already = _pre_skip_already_seen(conn, cfg)
+    skipped_geo = _pre_skip_non_us_geo(conn, cfg)
 
     auto = conn.execute(
         """
@@ -165,7 +235,7 @@ def _auto_advance(conn, cfg: Config) -> tuple[int, int]:
         """
     ).fetchall()
     skipped_auto = passed_auto = 0
-    skipped_auto += skipped_already
+    skipped_auto += skipped_already + skipped_geo
     for r in auto:
         try:
             reasons = json.loads(r["screen_reasons"] or "[]")
