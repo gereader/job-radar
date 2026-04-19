@@ -75,7 +75,7 @@ def submit(limit: int = 0) -> None:
     requests = []
     for r in rows:
         jd = cfg.root / (r["jd_path"] or "")
-        jd_md = jd.read_text() if jd.exists() else ""
+        jd_md = jd.read_text() if jd.is_file() else ""
         user = (
             f"Company: {r['company']}\nTitle: {r['title']}\n"
             f"Pre-screen score: {r['screen_score']}\n"

@@ -70,7 +70,7 @@ def _row(conn, app_id: int):
 
 def _user_prompt(cfg: Config, row, questions: list[dict], cached: dict[str, str]) -> str:
     jd_path = cfg.root / (row["jd_path"] or "")
-    jd_md = jd_path.read_text() if jd_path.exists() else ""
+    jd_md = jd_path.read_text() if jd_path.is_file() else ""
     cached_block = ""
     if cached:
         cached_block = (

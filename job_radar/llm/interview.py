@@ -53,7 +53,7 @@ def _past_questions(conn, archetype: str | None, *, limit: int = 25) -> list[str
 
 def _user_prompt(cfg: Config, row, past_questions: list[str] | None = None) -> str:
     jd_path = cfg.root / (row["jd_path"] or "")
-    jd_md = jd_path.read_text() if jd_path.exists() else ""
+    jd_md = jd_path.read_text() if jd_path.is_file() else ""
     past = ""
     if past_questions:
         past = (

@@ -39,8 +39,8 @@ def _system(cfg: Config) -> str:
 
 
 def _user_prompt(cfg: Config, row) -> str:
-    jd_path = cfg.root / row["jd_path"]
-    jd_md = jd_path.read_text() if jd_path.exists() else ""
+    jd_path = cfg.root / (row["jd_path"] or "")
+    jd_md = jd_path.read_text() if jd_path.is_file() else ""
     return (
         f"Company: {row['company']}\n"
         f"Role: {row['title']}\n"

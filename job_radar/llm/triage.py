@@ -324,8 +324,8 @@ def _auto_advance(conn, cfg: Config) -> tuple[int, int]:
 
 
 def _user_prompt(cfg: Config, row: Any) -> str:
-    jd_path = cfg.root / row["jd_path"]
-    jd_md = jd_path.read_text() if jd_path.exists() else ""
+    jd_path = cfg.root / (row["jd_path"] or "")
+    jd_md = jd_path.read_text() if jd_path.is_file() else ""
     return (
         f"Company: {row['company']}\nTitle: {row['title']}\n"
         f"Pre-screen score: {row['screen_score']}\n"
