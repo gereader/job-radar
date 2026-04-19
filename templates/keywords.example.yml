@@ -12,12 +12,35 @@ positive:
   - { term: "staff",             weight: 6,  field: title }
   - { term: "principal",         weight: 8,  field: title }
   - { term: "remote",            weight: 5,  field: any }
+  - { term: "site reliability",  weight: 8,  field: any }
+  - { term: "sre",               weight: 8,  field: any }
+  - { term: "production engineer", weight: 8, field: title }
+  - { term: "devops",            weight: 6,  field: any }
+  - { term: "infrastructure",    weight: 5,  field: any }
+  - { term: "kubernetes",        weight: 5,  field: any }
+  - { term: "terraform",         weight: 5,  field: any }
+  - { term: "developer experience", weight: 6, field: any }
+  - { term: "internal tooling",  weight: 6,  field: any }
 
 negative:
   - { term: "java",              weight: 4,  field: any }
   - { term: "c++",               weight: 4,  field: any }
   - { term: "junior",            weight: 6,  field: title }
   - { term: "intern",            weight: 10, field: title }
+  # Wrong-archetype title patterns — heavy weight so even rich positive
+  # keyword overlap can't rescue a sales-adjacent or HRIS/ERP role.
+  - { term: "solutions engineer", weight: 25, field: title }
+  - { term: "sales engineer",     weight: 25, field: title }
+  - { term: "pre-sales",          weight: 25, field: title }
+  - { term: "business systems",   weight: 25, field: title }
+  - { term: "workday",            weight: 25, field: title }
+  - { term: "netsuite",           weight: 25, field: title }
+  - { term: "financial systems",  weight: 25, field: title }
+  - { term: "hris",               weight: 25, field: title }
+  - { term: "people & payroll",   weight: 25, field: title }
+  - { term: "supply chain",       weight: 25, field: title }
+  - { term: "data platform engineer", weight: 20, field: title }
+  - { term: "data engineer",      weight: 20, field: title }
 
 dealbreaker:
   - { term: "on-site bay area",   field: location }
