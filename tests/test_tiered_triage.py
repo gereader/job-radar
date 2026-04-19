@@ -15,7 +15,6 @@ def test_dealbreaker_reason_parses_to_skip(conn):
     )
     conn.commit()
 
-    from job_radar.llm.triage import run_triage  # import lazily
     # Running would require the Anthropic SDK + API key; instead assert that
     # the auto-advance block alone marks this job as skip by re-implementing
     # the decision rule.

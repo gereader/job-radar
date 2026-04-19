@@ -6,7 +6,7 @@ base install stays light. Install with `pip install -e '.[playwright]'`.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from .base import RawJob
 

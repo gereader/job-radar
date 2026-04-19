@@ -7,7 +7,7 @@ companies you care about enough to tolerate false positives.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from .base import RawJob
 

@@ -1,6 +1,5 @@
 from job_radar.parse.html_to_md import html_to_markdown
 
-
 JD_HTML = """
 <html><body>
   <nav>Home | Jobs | About</nav>

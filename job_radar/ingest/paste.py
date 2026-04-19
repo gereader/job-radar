@@ -279,7 +279,8 @@ def ingest_paste(
 
 
 def ingest_paste_results(queue_dir: Path) -> None:
-    from ..llm.queue import ingest as q_ingest, load_manifest
+    from ..llm.queue import ingest as q_ingest
+    from ..llm.queue import load_manifest
 
     cfg = Config.load()
     conn = connect(cfg)

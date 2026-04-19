@@ -9,14 +9,13 @@ from __future__ import annotations
 import email
 import email.policy
 import mailbox
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from rich.console import Console
 
 from ..config import Config
 from ..db import connect, migrate
-from ..db.queries import tx
 from .paste import ingest_paste as _ingest_text_payload  # reuse extractor
 
 console = Console()

@@ -16,10 +16,10 @@ Dedup chain (cheapest first):
 from __future__ import annotations
 
 import time
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
-from typing import Iterable
 
 import httpx
 import yaml

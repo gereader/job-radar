@@ -25,7 +25,7 @@ class Ruleset:
     dealbreaker: list[Rule] = field(default_factory=list)
 
     @classmethod
-    def from_yaml(cls, path: Path) -> "Ruleset":
+    def from_yaml(cls, path: Path) -> Ruleset:
         data = yaml.safe_load(path.read_text()) or {}
         return cls(
             positive=[Rule(**r) for r in data.get("positive", [])],

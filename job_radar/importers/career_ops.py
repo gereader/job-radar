@@ -77,7 +77,7 @@ def _import_applications(src: Path, cfg: Config, conn) -> int:
             except ValueError:
                 pass
 
-        canonical = _STATUS_MAP.get(status.strip().lower(), None)
+        canonical = _STATUS_MAP.get(status.strip().lower())
         if not canonical:
             # leave unknown statuses as Evaluated
             canonical = "Evaluated"

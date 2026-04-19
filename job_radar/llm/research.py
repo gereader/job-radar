@@ -8,7 +8,6 @@ from rich.console import Console
 
 from ..config import Config
 from ..db import connect, migrate
-from ..util.slugify import slugify
 from ._report import REPORT_RESULT_SCHEMA, report_text, write_research_path
 from .client import DirectLLM, QueueLLM, log_queue_ingest
 from .dispatcher import build_llm

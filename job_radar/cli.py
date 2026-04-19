@@ -111,7 +111,7 @@ def triage(
     if batch:
         console.print(f"[red]unknown --batch mode:[/red] {batch} (use submit|poll)")
         raise typer.Exit(2)
-    from .llm.triage import run_triage, ingest_triage
+    from .llm.triage import ingest_triage, run_triage
 
     if ingest is not None:
         ingest_triage(ingest)
@@ -238,7 +238,10 @@ def followup(
 ):
     """Show queued follow-ups; with --draft / --draft-all, Haiku drafts."""
     from .contacts.followup import (
-        draft_followup, draft_followup_all, ingest_followup, show_queue,
+        draft_followup,
+        draft_followup_all,
+        ingest_followup,
+        show_queue,
     )
 
     if ingest is not None:
@@ -582,7 +585,9 @@ def learn_rejections(
 ):
     """Extract structured rejection reasons (location, comp, level, ...)."""
     from .learn.rejections import (
-        ingest_learn_rejections, run_learn_rejections, show_breakdown,
+        ingest_learn_rejections,
+        run_learn_rejections,
+        show_breakdown,
     )
 
     if show:
@@ -750,7 +755,9 @@ def echo(
     ``{"echo": "hello"}`` next to the packet, then ``jr echo --ingest <dir>``
     prints the round-tripped payload.
     """
-    from .llm.queue import QueueItem, ingest as q_ingest, prepare as q_prepare
+    from .llm.queue import QueueItem
+    from .llm.queue import ingest as q_ingest
+    from .llm.queue import prepare as q_prepare
 
     cfg = Config.load()
     cfg.ensure_dirs()

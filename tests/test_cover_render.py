@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from job_radar.apply.cover import render_cover_template
 
-
 _TEMPLATE = """{{date}}
 
 {{greeting_target}},
