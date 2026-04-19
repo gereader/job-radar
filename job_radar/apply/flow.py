@@ -35,13 +35,6 @@ def run_apply(
         console.print(f"[red]no job {job_id}[/red]")
         return
 
-    existing = conn.execute(
-        "SELECT id FROM applications WHERE job_id = ?", (job_id,)
-    ).fetchone()
-    if existing:
-        console.print(f"[yellow]application {existing['id']} already exists for job {job_id}[/yellow]")
-        return
-
     referral_name = None
     if referral_contact_id:
         c = conn.execute(
@@ -52,14 +45,32 @@ def run_apply(
             return
         referral_name = c["name"]
 
-    # Create row first so we have app_id for the directory.
-    with tx(conn):
-        cur = conn.execute(
-            "INSERT INTO applications(job_id, status, referral_contact_id) "
-            "VALUES (?, 'Evaluated', ?)",
-            (job_id, referral_contact_id),
+    # Reuse an existing app row (e.g. one created upstream by `jr eval`) so
+    # we can top up any missing resume / cover / jd files rather than
+    # bailing outright. Create only when nothing exists.
+    existing = conn.execute(
+        "SELECT id FROM applications WHERE job_id = ?", (job_id,)
+    ).fetchone()
+    if existing:
+        app_id = existing["id"]
+        console.print(
+            f"[cyan]application {app_id} already exists for job {job_id} — "
+            f"topping up any missing files[/cyan]"
         )
-        app_id = cur.lastrowid
+        if referral_contact_id:
+            with tx(conn):
+                conn.execute(
+                    "UPDATE applications SET referral_contact_id = ? WHERE id = ?",
+                    (referral_contact_id, app_id),
+                )
+    else:
+        with tx(conn):
+            cur = conn.execute(
+                "INSERT INTO applications(job_id, status, referral_contact_id) "
+                "VALUES (?, 'Evaluated', ?)",
+                (job_id, referral_contact_id),
+            )
+            app_id = cur.lastrowid
 
     app_dir = cfg.applications_dir / f"{app_id}-{slugify(job['company'])}"
     app_dir.mkdir(parents=True, exist_ok=True)
@@ -126,14 +137,15 @@ def run_apply(
                 app_id,
             ),
         )
-        # Log an outbound touchpoint placeholder — user fills in summary later.
-        conn.execute(
-            """
-            INSERT INTO touchpoints(application_id, channel, direction, summary)
-            VALUES (?, 'email', 'outbound', 'Application created')
-            """,
-            (app_id,),
-        )
+        # Log an outbound touchpoint placeholder on first creation only.
+        if not existing:
+            conn.execute(
+                """
+                INSERT INTO touchpoints(application_id, channel, direction, summary)
+                VALUES (?, 'email', 'outbound', 'Application created')
+                """,
+                (app_id,),
+            )
 
     console.print(f"[green]created application {app_id}[/green] at {app_dir}")
 
