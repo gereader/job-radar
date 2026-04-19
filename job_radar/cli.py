@@ -77,13 +77,29 @@ def scan(
 
 @app.command()
 def triage(
-    limit: int = typer.Option(0, "--limit", help="Max jobs to triage."),
+    limit: int = typer.Option(0, "--limit", help="Max jobs to triage (0 = default 10)."),
+    all_: bool = typer.Option(False, "--all", help="Process every candidate."),
+    rank: str | None = typer.Option(
+        None, "--rank", help="'debug' prints the ranked list without emitting packets.",
+    ),
+    prepare: bool = typer.Option(
+        False, "--prepare",
+        help="Force queue mode: write packets to private/llm-queue/ and exit.",
+    ),
+    ingest: Path | None = typer.Option(
+        None, "--ingest",
+        help="Read result-*.json files in this queue dir and write verdicts back.",
+    ),
     batch: str | None = typer.Option(
         None, "--batch",
         help="'submit' queues a Batch API job at 50% cost; 'poll' fetches results.",
     ),
 ):
-    """Haiku pass over the pre-screen 'review' bucket."""
+    """Haiku pass over the pre-screen 'review' bucket.
+
+    Default backend is auto: ``ANTHROPIC_API_KEY`` set → direct API,
+    otherwise queue. Pass ``--prepare`` to force queue mode.
+    """
     if batch == "submit":
         from .llm.batch_triage import submit
         submit(limit=limit)
@@ -95,9 +111,12 @@ def triage(
     if batch:
         console.print(f"[red]unknown --batch mode:[/red] {batch} (use submit|poll)")
         raise typer.Exit(2)
-    from .llm.triage import run_triage
+    from .llm.triage import run_triage, ingest_triage
 
-    run_triage(limit=limit)
+    if ingest is not None:
+        ingest_triage(ingest)
+        return
+    run_triage(limit=limit, all_=all_, rank_debug=(rank == "debug"), force_prepare=prepare)
 
 
 @app.command()
@@ -409,6 +428,95 @@ def import_career_ops(path: Path = typer.Argument(...)):
     from .importers.career_ops import run_import
 
     run_import(path)
+
+
+queue_app = typer.Typer(help="LLM queue inspection / housekeeping.")
+app.add_typer(queue_app, name="queue")
+
+
+@queue_app.command("ls")
+def queue_ls():
+    """List pending and consumed queue dirs under private/llm-queue/."""
+    from .llm.queue import is_consumed, list_queues, load_manifest
+
+    cfg = Config.load()
+    queues = list_queues(cfg.private)
+    if not queues:
+        console.print("(no queues)")
+        return
+    t = Table(title="LLM queues")
+    t.add_column("dir")
+    t.add_column("op")
+    t.add_column("items", justify="right")
+    t.add_column("pending", justify="right")
+    t.add_column("status")
+    for q in queues:
+        try:
+            m = load_manifest(q)
+            items = m.get("items", [])
+            pending_n = sum(1 for it in items if not (q / it["result"]).exists())
+            status = "consumed" if is_consumed(q) else (
+                "ready" if pending_n == 0 else "waiting"
+            )
+            t.add_row(
+                str(q.relative_to(cfg.private)), m.get("operation", "?"),
+                str(len(items)), str(pending_n), status,
+            )
+        except Exception as e:
+            t.add_row(str(q.relative_to(cfg.private)), "?", "?", "?", f"[red]{e}[/red]")
+    console.print(t)
+
+
+@queue_app.command("show")
+def queue_show(queue_dir: Path = typer.Argument(...)):
+    """Pretty-print a queue's manifest."""
+    from .llm.queue import load_manifest
+
+    m = load_manifest(queue_dir)
+    console.print_json(data=m)
+
+
+@app.command("echo")
+def echo(
+    text: str = typer.Argument(..., help="A short prompt to round-trip."),
+    ingest: Path | None = typer.Option(
+        None, "--ingest", help="Ingest a previously-prepared echo queue dir.",
+    ),
+):
+    """Smoke-test the queue/ingest pipeline with a one-shot operation.
+
+    ``jr echo "hello"`` writes a one-item queue dir; the user (or
+    Claude Code via /jr consume) drops a ``result-*.json`` like
+    ``{"echo": "hello"}`` next to the packet, then ``jr echo --ingest <dir>``
+    prints the round-tripped payload.
+    """
+    from .llm.queue import QueueItem, ingest as q_ingest, prepare as q_prepare
+
+    cfg = Config.load()
+    cfg.ensure_dirs()
+    if ingest is not None:
+        results = q_ingest(ingest)
+        for r in results:
+            console.print(f"[green]echo[/green] id={r.id} → {r.result}")
+        return
+    qdir = q_prepare(
+        operation="echo",
+        system="Echo back the user prompt as JSON: {\"echo\": <user-text>}.",
+        items=[QueueItem(id="1", user_prompt=text, meta={"text": text})],
+        private=Path(cfg.private),
+        model_hint="claude-haiku-4-5-20251001",
+        max_tokens=128,
+        result_schema={
+            "type": "object",
+            "properties": {"echo": {"type": "string"}},
+            "required": ["echo"],
+        },
+    )
+    console.print(f"[green]queued[/green] → {qdir}")
+    console.print(
+        "Next: ask Claude Code to run [bold]/jr consume[/bold] on that path, "
+        f"then [bold]jr echo --ingest {qdir}[/bold]."
+    )
 
 
 @app.command("migrate-portals")

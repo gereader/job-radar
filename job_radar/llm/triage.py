@@ -1,9 +1,25 @@
-"""Haiku triage pass on the pre-screen 'review' bucket."""
+"""Haiku triage pass on the pre-screen 'review' bucket.
+
+Two backends, one entry point:
+
+* Direct API (``ANTHROPIC_API_KEY`` set) — fires a Haiku request per row,
+  writes the verdict back inline, same as before.
+* Queue (Max plan) — ``--prepare`` writes one packet per row to
+  ``private/llm-queue/triage-{ts}/`` and exits. Claude Code runs
+  ``/jr consume`` to fill in ``result-*.json`` files. ``--ingest <dir>``
+  then folds verdicts back into ``jobs.triage_verdict``.
+
+Pre-ranking is mandatory: a candidate's value score is
+``screen_score * 1.0 + positive_keyword_count * 5 - age_days * 0.2`` and we
+always slice the top N (default 10) before either backend touches anything.
+"""
 
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -11,12 +27,25 @@ from rich.table import Table
 from ..config import Config
 from ..db import connect, migrate
 from ..db.queries import tx
-from .client import LLM
+from .client import DirectLLM, QueueLLM, log_queue_ingest
+from .dispatcher import build_llm
+from .ranker import print_rank_debug, rank_and_slice, resolved_default
 
 console = Console()
 
 _SYSTEM_TEMPLATE = (Path(__file__).parent.parent.parent / "modes" / "_shared.md")
 _TRIAGE_TEMPLATE = (Path(__file__).parent.parent.parent / "modes" / "triage.md")
+
+TRIAGE_RESULT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["verdict"],
+    "properties": {
+        "verdict": {"type": "string", "enum": ["pass", "review", "skip"]},
+        "score_0_5": {"type": "number"},
+        "rationale": {"type": "string"},
+        "archetype": {"type": "string"},
+    },
+}
 
 
 def _build_system(cfg: Config) -> str:
@@ -36,18 +65,27 @@ def _build_system(cfg: Config) -> str:
     )
 
 
-def run_triage(limit: int = 0) -> None:
-    cfg = Config.load()
-    conn = connect(cfg)
-    migrate(conn)
+def _value_score(row: Any) -> float:
+    """``screen_score * 1.0 + positives * 5 - age_days * 0.2``."""
+    score = float(row["screen_score"] or 0)
+    try:
+        reasons = json.loads(row["screen_reasons"] or "[]")
+    except (json.JSONDecodeError, TypeError):
+        reasons = []
+    positives = sum(1 for x in reasons if isinstance(x, str) and x.startswith("+"))
+    fetched = row["fetched_at"]
+    age_days = 0.0
+    if fetched:
+        try:
+            t = datetime.fromisoformat(fetched.replace("Z", "+00:00"))
+            age_days = max(0.0, (datetime.now(t.tzinfo) - t).total_seconds() / 86400.0)
+        except (TypeError, ValueError):
+            age_days = 0.0
+    return score + positives * 5 - age_days * 0.2
 
-    model = (cfg.profile.get("llm") or {}).get("triage_model", "claude-haiku-4-5-20251001")
-    llm = LLM(conn, default_model=model)
-    system = _build_system(cfg)
 
-    # Tier-0: auto-advance the obvious ones without spending on Haiku.
-    #   - score >= 90 AND at least 3 positive-keyword hits → triage=pass
-    #   - score <= 20 OR a dealbreaker reason was recorded → triage=skip
+def _auto_advance(conn) -> tuple[int, int]:
+    """Cheap heuristic before Haiku spend: very-good and very-bad rows."""
     auto = conn.execute(
         """
         SELECT id, screen_score, screen_reasons
@@ -55,13 +93,11 @@ def run_triage(limit: int = 0) -> None:
         WHERE screen_verdict = 'review' AND triage_verdict IS NULL
         """
     ).fetchall()
-    import json as _json
-    skipped_auto = 0
-    passed_auto = 0
+    skipped_auto = passed_auto = 0
     for r in auto:
         try:
-            reasons = _json.loads(r["screen_reasons"] or "[]")
-        except _json.JSONDecodeError:
+            reasons = json.loads(r["screen_reasons"] or "[]")
+        except json.JSONDecodeError:
             reasons = []
         positives = sum(1 for x in reasons if isinstance(x, str) and x.startswith("+"))
         has_dealbreaker = any(
@@ -80,7 +116,66 @@ def run_triage(limit: int = 0) -> None:
                     "UPDATE jobs SET triage_verdict = ?, triage_notes = ? WHERE id = ?",
                     (verdict, '{"source":"auto-advance"}', r["id"]),
                 )
-    if skipped_auto or passed_auto:
+    return passed_auto, skipped_auto
+
+
+def _user_prompt(cfg: Config, row: Any) -> str:
+    jd_path = cfg.root / row["jd_path"]
+    jd_md = jd_path.read_text() if jd_path.exists() else ""
+    return (
+        f"Company: {row['company']}\nTitle: {row['title']}\n"
+        f"Pre-screen score: {row['screen_score']}\n"
+        f"Pre-screen reasons: {row['screen_reasons']}\n\n"
+        f"---\n\n{jd_md[:8000]}"
+    )
+
+
+def _apply_verdict(conn, cfg: Config, job_id: int, parsed: dict[str, Any], jd_rel: str) -> None:
+    with tx(conn):
+        conn.execute(
+            "UPDATE jobs SET triage_verdict = ?, triage_notes = ? WHERE id = ?",
+            (parsed.get("verdict", "review"), json.dumps(parsed), job_id),
+        )
+    from .autohooks import maybe_research_after_triage
+    try:
+        maybe_research_after_triage(conn, cfg, job_id, parsed)
+    except Exception as e:
+        console.print(f"[dim]auto-research skipped: {e}[/dim]")
+
+    prune_at = float(
+        (cfg.profile.get("scoring") or {}).get("auto_prune_below", 0) or 0
+    )
+    try:
+        s05 = float(parsed.get("score_0_5", 0) or 0)
+    except (TypeError, ValueError):
+        s05 = 0.0
+    if prune_at and s05 and s05 <= prune_at:
+        jd_full = cfg.root / jd_rel
+        try:
+            if jd_full.exists():
+                jd_full.unlink()
+        except OSError:
+            pass
+        with tx(conn):
+            conn.execute(
+                "UPDATE jobs SET archived_at = datetime('now') WHERE id = ?",
+                (job_id,),
+            )
+
+
+def run_triage(
+    *,
+    limit: int = 0,
+    all_: bool = False,
+    rank_debug: bool = False,
+    force_prepare: bool = False,
+) -> None:
+    cfg = Config.load()
+    conn = connect(cfg)
+    migrate(conn)
+
+    passed_auto, skipped_auto = _auto_advance(conn)
+    if passed_auto or skipped_auto:
         console.print(
             f"[cyan]auto-advanced[/cyan] pass={passed_auto} skip={skipped_auto} "
             "(no LLM spent)"
@@ -88,37 +183,82 @@ def run_triage(limit: int = 0) -> None:
 
     rows = conn.execute(
         """
-        SELECT id, company, title, jd_path, screen_score, screen_reasons
+        SELECT id, company, title, jd_path, fetched_at, screen_score, screen_reasons
         FROM jobs
         WHERE screen_verdict = 'review' AND triage_verdict IS NULL
         ORDER BY id ASC
         """
     ).fetchall()
-    if limit:
-        rows = rows[:limit]
     if not rows:
         console.print("no ambiguous jobs — nothing for Haiku to decide.")
         return
 
-    table = Table(title=f"Triaging {len(rows)} jobs")
+    default_n = resolved_default(cfg.profile)
+    requested = limit if limit > 0 else default_n
+    sliced = rank_and_slice(rows, key=_value_score, limit=requested, all_=all_)
+
+    if rank_debug:
+        print_rank_debug(
+            list(rows),
+            key=_value_score,
+            columns=[
+                ("id", lambda r: r["id"]),
+                ("company", lambda r: r["company"]),
+                ("title", lambda r: r["title"]),
+                ("screen", lambda r: r["screen_score"]),
+            ],
+            title=f"Triage rank ({len(rows)} candidates)",
+            console=console,
+        )
+        return
+
+    picked = sliced.picked
+    hint = sliced.hint(command="jr triage", current_limit=requested)
+
+    model = (cfg.profile.get("llm") or {}).get("triage_model", "claude-haiku-4-5-20251001")
+    backend, llm = build_llm(
+        conn,
+        cfg,
+        operation="triage",
+        default_model=model,
+        result_schema=TRIAGE_RESULT_SCHEMA,
+        force=("queue" if force_prepare else None),
+    )
+    system = _build_system(cfg)
+
+    if backend == "queue":
+        assert isinstance(llm, QueueLLM)
+        for r in picked:
+            llm.enqueue(
+                system=system,
+                user=_user_prompt(cfg, r),
+                item_id=r["id"],
+                meta={"job_id": r["id"], "company": r["company"], "title": r["title"],
+                      "jd_path": r["jd_path"]},
+                max_tokens=512,
+            )
+        qdir = llm.finalize()
+        console.print(f"[green]queued[/green] {len(picked)} packets → {qdir}")
+        if hint:
+            console.print(hint)
+        console.print(
+            "Next: ask Claude Code to run [bold]/jr consume "
+            f"{qdir}[/bold], then [bold]jr triage --ingest {qdir}[/bold]."
+        )
+        return
+
+    assert isinstance(llm, DirectLLM)
+    table = Table(title=f"Triaging {len(picked)} of {len(rows)} jobs")
     table.add_column("#", justify="right")
     table.add_column("Company")
     table.add_column("Role")
     table.add_column("Verdict")
     table.add_column("Score")
 
-    for r in rows:
-        jd_path = cfg.root / r["jd_path"]
-        jd_md = jd_path.read_text() if jd_path.exists() else ""
-        user_prompt = (
-            f"Company: {r['company']}\nTitle: {r['title']}\n"
-            f"Pre-screen score: {r['screen_score']}\n"
-            f"Pre-screen reasons: {r['screen_reasons']}\n\n"
-            f"---\n\n{jd_md[:8000]}"  # cap to keep tokens tight
-        )
+    for r in picked:
         resp = llm.complete(
             system=system,
-            user=user_prompt,
+            user=_user_prompt(cfg, r),
             operation="triage",
             job_id=r["id"],
             max_tokens=512,
@@ -127,46 +267,44 @@ def run_triage(limit: int = 0) -> None:
             parsed = json.loads(resp.text.strip().strip("`"))
         except json.JSONDecodeError:
             parsed = {"verdict": "review", "notes": resp.text[:200]}
-
-        with tx(conn):
-            conn.execute(
-                """
-                UPDATE jobs
-                SET triage_verdict = ?, triage_notes = ?
-                WHERE id = ?
-                """,
-                (parsed.get("verdict", "review"), json.dumps(parsed), r["id"]),
-            )
+        _apply_verdict(conn, cfg, r["id"], parsed, r["jd_path"])
         table.add_row(
             str(r["id"]), r["company"], r["title"],
             parsed.get("verdict", "?"), str(parsed.get("score_0_5", "-")),
         )
 
-        from .autohooks import maybe_research_after_triage
-        try:
-            maybe_research_after_triage(conn, cfg, r["id"], parsed)
-        except Exception as e:
-            console.print(f"[dim]auto-research skipped: {e}[/dim]")
-
-        # Auto-prune under-threshold jobs: delete JD file, archive row, keep
-        # hash so re-scan skips the exact same post in the future.
-        prune_at = float(
-            (cfg.profile.get("scoring") or {}).get("auto_prune_below", 0) or 0
-        )
-        try:
-            s05 = float(parsed.get("score_0_5", 0) or 0)
-        except (TypeError, ValueError):
-            s05 = 0.0
-        if prune_at and s05 and s05 <= prune_at:
-            jd_full = cfg.root / (jd_path if isinstance(jd_path, str) else str(jd_path))
-            try:
-                if jd_full.exists():
-                    jd_full.unlink()
-            except OSError:
-                pass
-            with tx(conn):
-                conn.execute(
-                    "UPDATE jobs SET archived_at = datetime('now') WHERE id = ?",
-                    (r["id"],),
-                )
     console.print(table)
+    if hint:
+        console.print(hint)
+
+
+def ingest_triage(queue_dir: Path) -> None:
+    """Fold result-*.json files from a queue dir into the DB."""
+    from .queue import ingest as q_ingest
+
+    cfg = Config.load()
+    conn = connect(cfg)
+    migrate(conn)
+
+    results = q_ingest(queue_dir)
+    table = Table(title=f"Ingested {len(results)} triage results")
+    table.add_column("job_id", justify="right")
+    table.add_column("company")
+    table.add_column("verdict")
+    table.add_column("score")
+
+    for r in results:
+        meta = r.meta or {}
+        job_id = int(meta.get("job_id") or r.id)
+        parsed = r.result if isinstance(r.result, dict) else {"verdict": "review",
+                                                              "notes": str(r.result)[:200]}
+        jd_rel = meta.get("jd_path") or ""
+        _apply_verdict(conn, cfg, job_id, parsed, jd_rel)
+        table.add_row(
+            str(job_id), str(meta.get("company", "?")),
+            str(parsed.get("verdict", "?")), str(parsed.get("score_0_5", "-")),
+        )
+        log_queue_ingest(conn, operation="triage", item_count=1, job_id=job_id)
+
+    console.print(table)
+    console.print(f"[green]ingest complete[/green] — {queue_dir}")
