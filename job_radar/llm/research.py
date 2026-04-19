@@ -23,8 +23,16 @@ def _system() -> str:
 
 
 def _user_prompt(cfg: Config, row) -> str:
-    jd_path = cfg.root / (row["jd_path"] or "")
-    jd_md = jd_path.read_text() if jd_path.exists() else ""
+    jd_rel = row["jd_path"] or ""
+    jd_path = cfg.root / jd_rel if jd_rel else None
+    # Guard against (a) empty jd_path collapsing to cfg.root (a directory) and
+    # (b) a path that exists but happens to not be a file — both would crash
+    # read_text() with IsADirectoryError.
+    jd_md = (
+        jd_path.read_text()
+        if jd_path is not None and jd_path.is_file()
+        else ""
+    )
     return (
         f"Company: {row['company']}\nRole: {row['title']}\nURL: {row['url']}\n\n"
         f"JD excerpt for context:\n\n{jd_md[:6000]}"
