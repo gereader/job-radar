@@ -1,8 +1,7 @@
-"""`jr offer <app_id>` — Opus offer evaluation + counter-script."""
+"""`jr offer <app_id>` — Opus offer evaluation + counter-script. Direct or queue."""
 
 from __future__ import annotations
 
-from datetime import date
 from pathlib import Path
 
 from rich.console import Console
@@ -11,8 +10,9 @@ from rich.prompt import Prompt
 from ..config import Config
 from ..db import connect, migrate
 from ..db.queries import tx
-from ..util.slugify import slugify
-from .client import LLM
+from ._report import REPORT_RESULT_SCHEMA, report_text, write_app_report
+from .client import DirectLLM, QueueLLM, log_queue_ingest
+from .dispatcher import build_llm
 
 console = Console()
 
@@ -43,24 +43,7 @@ def _prompt_offer(existing: dict) -> dict:
     }
 
 
-def run_offer_eval(app_id: int) -> None:
-    cfg = Config.load()
-    conn = connect(cfg)
-    migrate(conn)
-
-    row = conn.execute(
-        """
-        SELECT a.*, j.company, j.title, j.url, j.comp_min, j.comp_max, j.comp_currency
-        FROM applications a JOIN jobs j ON j.id = a.job_id
-        WHERE a.id = ?
-        """,
-        (app_id,),
-    ).fetchone()
-    if not row:
-        console.print(f"[red]no application {app_id}[/red]")
-        return
-
-    fields = _prompt_offer(dict(row))
+def _persist_offer_fields(conn, app_id: int, fields: dict) -> None:
     with tx(conn):
         conn.execute(
             """
@@ -77,9 +60,10 @@ def run_offer_eval(app_id: int) -> None:
             ),
         )
 
+
+def _user_prompt(cfg: Config, row, fields: dict) -> str:
     target = (cfg.profile.get("targets") or {}).get("comp") or {}
-    system = _SHARED.read_text() + "\n\n---\n\n" + _OFFER.read_text()
-    user = (
+    return (
         f"Candidate target comp: {target}\n"
         f"Profile dealbreakers: {(cfg.profile.get('targets') or {}).get('dealbreakers', [])}\n"
         f"Company: {row['company']}\nRole: {row['title']}\nURL: {row['url']}\n"
@@ -93,19 +77,82 @@ def run_offer_eval(app_id: int) -> None:
         f"- Deadline: {fields['offer_deadline']}\n"
         f"- Notes: {fields['offer_notes']}\n"
     )
+
+
+def _row_for(conn, app_id: int):
+    return conn.execute(
+        """
+        SELECT a.*, j.company, j.title, j.url, j.comp_min, j.comp_max, j.comp_currency
+        FROM applications a JOIN jobs j ON j.id = a.job_id
+        WHERE a.id = ?
+        """,
+        (app_id,),
+    ).fetchone()
+
+
+def run_offer_eval(app_id: int, *, force_prepare: bool = False) -> None:
+    cfg = Config.load()
+    conn = connect(cfg)
+    migrate(conn)
+
+    row = _row_for(conn, app_id)
+    if not row:
+        console.print(f"[red]no application {app_id}[/red]")
+        return
+
+    fields = _prompt_offer(dict(row))
+    _persist_offer_fields(conn, app_id, fields)
+
     model = (cfg.profile.get("llm") or {}).get("offers_model", "claude-opus-4-7")
-    llm = LLM(conn, default_model=model)
+    backend, llm = build_llm(
+        conn, cfg, operation="offer", default_model=model,
+        result_schema=REPORT_RESULT_SCHEMA,
+        force=("queue" if force_prepare else None),
+    )
+    system = _SHARED.read_text() + "\n\n---\n\n" + _OFFER.read_text()
+    user = _user_prompt(cfg, row, fields)
+
+    if backend == "queue":
+        assert isinstance(llm, QueueLLM)
+        llm.enqueue(
+            system=system, user=user, item_id=app_id,
+            meta={"app_id": app_id, "company": row["company"], "title": row["title"]},
+            max_tokens=3500,
+        )
+        qdir = llm.finalize()
+        console.print(
+            f"[green]queued[/green] offer eval → {qdir}\n"
+            f"Next: [bold]/jr consume {qdir}[/bold], "
+            f"then [bold]jr offer --ingest {qdir}[/bold]."
+        )
+        return
+
+    assert isinstance(llm, DirectLLM)
     resp = llm.complete(
         system=system, user=user, operation="offer",
         app_id=app_id, max_tokens=3500,
     )
-
-    app_dir = cfg.applications_dir / f"{app_id}-{slugify(row['company'])}"
-    app_dir.mkdir(parents=True, exist_ok=True)
-    out = app_dir / f"offer-{date.today().isoformat()}.md"
-    out.write_text(resp.text)
+    out = write_app_report(cfg, app_id, row["company"], "offer", resp.text)
     console.print(f"[green]offer eval[/green] → {out}")
     console.print(
         f"tokens: in={resp.input_tokens} out={resp.output_tokens} "
         f"cached={resp.cached_tokens}"
     )
+
+
+def ingest_offer(queue_dir: Path) -> None:
+    from .queue import ingest as q_ingest
+
+    cfg = Config.load()
+    conn = connect(cfg)
+    migrate(conn)
+
+    results = q_ingest(queue_dir)
+    for r in results:
+        meta = r.meta or {}
+        app_id = int(meta.get("app_id") or r.id)
+        company = meta.get("company") or "unknown"
+        out = write_app_report(cfg, app_id, company, "offer", report_text(r.result))
+        console.print(f"[green]offer eval[/green] app={app_id} → {out}")
+        log_queue_ingest(conn, operation="offer", item_count=1, app_id=app_id)
+    console.print(f"\n[green]ingest complete[/green] — {queue_dir}")

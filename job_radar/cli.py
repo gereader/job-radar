@@ -128,11 +128,21 @@ def show(job_id: int):
 
 
 @app.command(name="eval")
-def eval_cmd(job_id: int):
+def eval_cmd(
+    job_id: int | None = typer.Argument(None),
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest"),
+):
     """Run Sonnet deep evaluation (A-F+G) and write a report."""
-    from .llm.evaluate import run_evaluate
+    from .llm.evaluate import ingest_evaluate, run_evaluate
 
-    run_evaluate(job_id)
+    if ingest is not None:
+        ingest_evaluate(ingest)
+        return
+    if job_id is None:
+        console.print("[red]usage:[/red] jr eval <job_id> | --ingest <dir>")
+        raise typer.Exit(2)
+    run_evaluate(job_id, force_prepare=prepare)
 
 
 @app.command()
@@ -262,19 +272,57 @@ def patterns():
 
 
 @app.command()
-def interview(app_id: int):
+def interview(
+    app_id: int | None = typer.Argument(None),
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest"),
+):
     """Sonnet interview prep report for an application."""
-    from .llm.interview import run_interview_prep
+    from .llm.interview import ingest_interview, run_interview_prep
 
-    run_interview_prep(app_id)
+    if ingest is not None:
+        ingest_interview(ingest)
+        return
+    if app_id is None:
+        console.print("[red]usage:[/red] jr interview <app_id> | --ingest <dir>")
+        raise typer.Exit(2)
+    run_interview_prep(app_id, force_prepare=prepare)
 
 
 @app.command()
-def research(job_id: int):
+def research(
+    job_id: int | None = typer.Argument(None),
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest"),
+):
     """Sonnet company research: funding, headcount, signals, risks."""
-    from .llm.research import run_research
+    from .llm.research import ingest_research, run_research
 
-    run_research(job_id)
+    if ingest is not None:
+        ingest_research(ingest)
+        return
+    if job_id is None:
+        console.print("[red]usage:[/red] jr research <job_id> | --ingest <dir>")
+        raise typer.Exit(2)
+    run_research(job_id, force_prepare=prepare)
+
+
+@app.command()
+def offer(
+    app_id: int | None = typer.Argument(None),
+    prepare: bool = typer.Option(False, "--prepare", help="Force queue mode."),
+    ingest: Path | None = typer.Option(None, "--ingest"),
+):
+    """Opus offer evaluation + counter-script for an application."""
+    from .llm.offer import ingest_offer, run_offer_eval
+
+    if ingest is not None:
+        ingest_offer(ingest)
+        return
+    if app_id is None:
+        console.print("[red]usage:[/red] jr offer <app_id> | --ingest <dir>")
+        raise typer.Exit(2)
+    run_offer_eval(app_id, force_prepare=prepare)
 
 
 @app.command()
